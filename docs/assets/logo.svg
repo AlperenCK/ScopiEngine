@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 250" width="860" height="250" role="img" aria-label="ScopiEngine">
+  <title>ScopiEngine</title>
+  <desc>ScopiEngine logo: an angular S mark dissolving into data blocks on the left and a node graph on the right, beside the ScopiEngine wordmark.</desc>
+
+  <defs>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22E4FF"/>
+      <stop offset="38%" stop-color="#00D4FF"/>
+      <stop offset="70%" stop-color="#3B5BFF"/>
+      <stop offset="100%" stop-color="#C026D3"/>
+    </linearGradient>
+    <linearGradient id="wordA" gradientUnits="userSpaceOnUse" x1="376" y1="96" x2="376" y2="146">
+      <stop offset="0%" stop-color="#F8FAFC"/>
+      <stop offset="100%" stop-color="#8FA3BC"/>
+    </linearGradient>
+    <linearGradient id="wordB" gradientUnits="userSpaceOnUse" x1="540" y1="0" x2="760" y2="0">
+      <stop offset="0%" stop-color="#00D4FF"/>
+      <stop offset="55%" stop-color="#3B5BFF"/>
+      <stop offset="100%" stop-color="#A855F7"/>
+    </linearGradient>
+    <linearGradient id="dust" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#00D4FF"/>
+      <stop offset="100%" stop-color="#3B5BFF"/>
+    </linearGradient>
+    <linearGradient id="rule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00D4FF" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#3B5BFF" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#A855F7" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="860" height="250" rx="26" fill="#0A1128"/>
+
+  <!-- data blocks dissolving into the mark -->
+  <g fill="url(#dust)">
+    <rect x="34"  y="118" width="17" height="17" rx="3" opacity="0.28"/>
+    <rect x="60"  y="86"  width="13" height="13" rx="3" opacity="0.42"/>
+    <rect x="58"  y="146" width="11" height="11" rx="2.5" opacity="0.36"/>
+    <rect x="82"  y="112" width="20" height="20" rx="4" opacity="0.55"/>
+    <rect x="88"  y="62"  width="14" height="14" rx="3" opacity="0.5"/>
+    <rect x="86"  y="170" width="15" height="15" rx="3" opacity="0.45"/>
+    <rect x="112" y="140" width="12" height="12" rx="2.5" opacity="0.7"/>
+    <rect x="114" y="88"  width="17" height="17" rx="3.5" opacity="0.75"/>
+  </g>
+
+  <!-- the S mark -->
+  <path d="M226 74 H150 a26 26 0 0 0 0 52 H206 a26 26 0 0 1 0 52 H130"
+        fill="none" stroke="url(#mark)" stroke-width="30"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- node graph -->
+  <g stroke="#3B5BFF" stroke-width="2" opacity="0.75" fill="none">
+    <path d="M252 126 L292 84 M252 126 L296 168 M292 84 L330 126 M296 168 L330 126 M292 84 L296 168"/>
+  </g>
+  <g>
+    <circle cx="252" cy="126" r="8"   fill="#00D4FF"/>
+    <circle cx="292" cy="84"  r="6"   fill="#22D3EE"/>
+    <circle cx="296" cy="168" r="6.5" fill="#A855F7"/>
+    <circle cx="330" cy="126" r="5"   fill="#C026D3"/>
+  </g>
+
+  <!-- wordmark -->
+  <g font-family="'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif">
+    <text x="376" y="142" font-size="62" font-weight="700" letter-spacing="-1">
+      <tspan fill="url(#wordA)">Scopi</tspan><tspan fill="url(#wordB)">Engine</tspan>
+    </text>
+    <text x="380" y="184" font-size="15" font-weight="500" fill="#64748B" letter-spacing="5">SEARCH / ANALYZE / DISCOVER</text>
+  </g>
+
+  <rect x="378" y="212" width="340" height="2" rx="1" fill="url(#rule)"/>
+</svg>
