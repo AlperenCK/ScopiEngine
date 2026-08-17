@@ -16,7 +16,8 @@ from typing import Any
 
 from scopiengine.analysis.analyzer import Analyzer
 from scopiengine.index.manager import IndexManager
-from scopiengine.index.searcher import Hit
+from scopiengine.index.searcher import SearchResult
+from scopiengine.mapping.mapping import Mapping, parse_mapping
 from scopiengine.plugins.registry import PluginRegistry, discover_plugins
 from scopiengine.query.ast import Query
 from scopiengine.settings import Settings
@@ -136,15 +137,35 @@ class Engine:
         """See :meth:`scopiengine.index.manager.IndexManager.force_merge`."""
         return self.manager.force_merge(index)
 
-    def search(self, index: str, query: Query, *, size: int = 10, from_: int = 0) -> list[Hit]:
-        """See :meth:`scopiengine.index.manager.IndexManager.search`."""
-        hits = self.manager.search(index, query, size=size, from_=from_)
-        self.plugins.events.fire("on_search", index, query, hits)
-        return hits
+    def search(self, index: str, query: Query, *, size: int = 10, from_: int = 0) -> SearchResult:
+        """See :meth:`scopiengine.index.manager.IndexManager.search`.
+
+        Returns:
+            A :class:`~scopiengine.index.searcher.SearchResult` carrying both
+            the requested page (``result.hits``) and the true total match
+            count (``result.total``) — see the module note in
+            :mod:`scopiengine.index.searcher` for how the total is computed.
+        """
+        result = self.manager.search(index, query, size=size, from_=from_)
+        self.plugins.events.fire("on_search", index, query, result.hits)
+        return result
 
     def stats(self, index: str) -> dict[str, Any]:
         """See :meth:`scopiengine.index.manager.IndexManager.stats`."""
         return self.manager.stats(index)
+
+    def get_mapping(self, index: str) -> Mapping:
+        """Fetch and parse one index's current field mapping.
+
+        A convenience for the query compiler and the REST/CLI layers, which
+        need the parsed :class:`~scopiengine.mapping.mapping.Mapping` (not the
+        raw dict :meth:`get_index` returns) to resolve field types before
+        building a query AST.
+
+        Raises:
+            IndexNotFoundError: No index named ``index`` exists.
+        """
+        return parse_mapping(self.get_index(index).mapping)
 
     # -- analysis --------------------------------------------------------------
 

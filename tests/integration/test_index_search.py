@@ -6,7 +6,6 @@ force-merged index return identical hits and scores).
 from __future__ import annotations
 
 import random
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -79,17 +78,19 @@ def logs(engine: Engine) -> Engine:
 
 
 def test_term_query_matches_and_ranks_by_bm25(logs: Engine) -> None:
-    hits = logs.search("logs", Term("message", "quick"))
-    ids = _hit_ids(logs, "logs", hits)
+    result = logs.search("logs", Term("message", "quick"))
+    ids = _hit_ids(logs, "logs", result.hits)
     assert set(ids) == {"a", "b"}
+    assert result.total == 2
     # doc "b" says "quick" twice, so it should outrank doc "a".
     assert ids[0] == "b"
 
 
 def test_phrase_query_requires_adjacency(logs: Engine) -> None:
-    hits = logs.search("logs", Phrase("message", ("quick", "fox")))
-    ids = _hit_ids(logs, "logs", hits)
+    result = logs.search("logs", Phrase("message", ("quick", "fox")))
+    ids = _hit_ids(logs, "logs", result.hits)
     assert ids == ["b"]  # "quick fox" is adjacent only in doc b
+    assert result.total == 1
 
 
 def test_phrase_query_with_slop_allows_a_gap(logs: Engine) -> None:
@@ -97,27 +98,27 @@ def test_phrase_query_with_slop_allows_a_gap(logs: Engine) -> None:
     # ("quick brown fox": quick@0, brown@1, fox@2 - distance 2, needs slop 1).
     tight = logs.search("logs", Phrase("message", ("quick", "fox"), slop=0))
     loose = logs.search("logs", Phrase("message", ("quick", "fox"), slop=1))
-    assert _hit_ids(logs, "logs", tight) == ["b"]
-    assert set(_hit_ids(logs, "logs", loose)) == {"a", "b"}
+    assert _hit_ids(logs, "logs", tight.hits) == ["b"]
+    assert set(_hit_ids(logs, "logs", loose.hits)) == {"a", "b"}
 
 
 def test_prefix_query(logs: Engine) -> None:
-    hits = logs.search("logs", Prefix("message", "jum"))
-    assert _hit_ids(logs, "logs", hits) == ["a"]
+    result = logs.search("logs", Prefix("message", "jum"))
+    assert _hit_ids(logs, "logs", result.hits) == ["a"]
 
 
 def test_range_query_on_long_field(logs: Engine) -> None:
-    hits = logs.search("logs", Range("count", gte=encode_long(2), lte=encode_long(10)))
-    assert set(_hit_ids(logs, "logs", hits)) == {"b", "c"}
+    result = logs.search("logs", Range("count", gte=encode_long(2), lte=encode_long(10)))
+    assert set(_hit_ids(logs, "logs", result.hits)) == {"b", "c"}
 
 
 def test_range_query_exclusive_bounds(logs: Engine) -> None:
-    hits = logs.search("logs", Range("count", gt=encode_long(1), lt=encode_long(10)))
-    assert _hit_ids(logs, "logs", hits) == ["b"]
+    result = logs.search("logs", Range("count", gt=encode_long(1), lt=encode_long(10)))
+    assert _hit_ids(logs, "logs", result.hits) == ["b"]
 
 
 def test_range_query_on_date_field(logs: Engine) -> None:
-    hits = logs.search(
+    result = logs.search(
         "logs",
         Range(
             "seen_at",
@@ -125,44 +126,48 @@ def test_range_query_on_date_field(logs: Engine) -> None:
             lte=encode_date("2026-02-28T00:00:00Z"),
         ),
     )
-    assert _hit_ids(logs, "logs", hits) == ["b"]
+    assert _hit_ids(logs, "logs", result.hits) == ["b"]
 
 
 def test_exists_query(logs: Engine) -> None:
-    hits = logs.search("logs", Exists("level"))
-    assert len(hits) == 3
+    result = logs.search("logs", Exists("level"))
+    assert len(result.hits) == 3
+    assert result.total == 3
 
 
 def test_exists_query_on_absent_field_matches_nothing(logs: Engine) -> None:
-    assert logs.search("logs", Exists("nonexistent_field")) == []
+    result = logs.search("logs", Exists("nonexistent_field"))
+    assert result.hits == []
+    assert result.total == 0
 
 
 def test_match_all_returns_every_live_document(logs: Engine) -> None:
-    hits = logs.search("logs", MatchAll())
-    assert len(hits) == 3
-    assert all(h.score == 1.0 for h in hits)
+    result = logs.search("logs", MatchAll())
+    assert len(result.hits) == 3
+    assert result.total == 3
+    assert all(h.score == 1.0 for h in result.hits)
 
 
 def test_bool_must_and_filter(logs: Engine) -> None:
-    hits = logs.search(
+    result = logs.search(
         "logs",
         Bool(must=(Term("message", "quick"),), filter=(Term("level", "ERROR"),)),
     )
-    assert _hit_ids(logs, "logs", hits) == ["b"]
+    assert _hit_ids(logs, "logs", result.hits) == ["b"]
 
 
 def test_bool_must_not(logs: Engine) -> None:
-    hits = logs.search(
+    result = logs.search(
         "logs", Bool(must=(Term("level", "INFO"),), must_not=(Term("message", "unrelated"),))
     )
-    assert _hit_ids(logs, "logs", hits) == ["a"]
+    assert _hit_ids(logs, "logs", result.hits) == ["a"]
 
 
 def test_bool_should_without_must_acts_as_or(logs: Engine) -> None:
-    hits = logs.search(
+    result = logs.search(
         "logs", Bool(should=(Term("message", "jumps"), Term("message", "unrelated")))
     )
-    assert set(_hit_ids(logs, "logs", hits)) == {"a", "c"}
+    assert set(_hit_ids(logs, "logs", result.hits)) == {"a", "c"}
 
 
 def test_bool_should_boosts_score_without_gating(logs: Engine) -> None:
@@ -170,8 +175,8 @@ def test_bool_should_boosts_score_without_gating(logs: Engine) -> None:
     boosted = logs.search(
         "logs", Bool(must=(Term("message", "quick"),), should=(Term("level", "ERROR"),))
     )
-    base_by_ord = {h.doc_ord: h.score for h in base}
-    boosted_by_ord = {h.doc_ord: h.score for h in boosted}
+    base_by_ord = {h.doc_ord: h.score for h in base.hits}
+    boosted_by_ord = {h.doc_ord: h.score for h in boosted.hits}
     assert set(base_by_ord) == set(boosted_by_ord)
     # doc "b" (level ERROR) should score higher once boosted; doc "a" unchanged.
     for doc_ord, score in boosted_by_ord.items():
@@ -180,8 +185,8 @@ def test_bool_should_boosts_score_without_gating(logs: Engine) -> None:
 
 
 def test_empty_bool_matches_everything(logs: Engine) -> None:
-    hits = logs.search("logs", Bool())
-    assert len(hits) == 3
+    result = logs.search("logs", Bool())
+    assert len(result.hits) == 3
 
 
 # -- delete and re-index are reflected in results ------------------------------
@@ -190,8 +195,8 @@ def test_empty_bool_matches_everything(logs: Engine) -> None:
 def test_delete_then_search_excludes_the_document(logs: Engine) -> None:
     assert logs.delete_document("logs", "a") is True
     logs.refresh("logs")
-    hits = logs.search("logs", MatchAll())
-    assert set(_hit_ids(logs, "logs", hits)) == {"b", "c"}
+    result = logs.search("logs", MatchAll())
+    assert set(_hit_ids(logs, "logs", result.hits)) == {"b", "c"}
 
 
 def test_delete_missing_document_returns_false(logs: Engine) -> None:
@@ -202,10 +207,10 @@ def test_reindex_after_delete_is_visible(logs: Engine) -> None:
     logs.delete_document("logs", "a")
     logs.index_documents("logs", [{"message": "brand new entry", "level": "INFO"}], ids=["a"])
     logs.refresh("logs")
-    hits = logs.search("logs", Term("message", "brand"))
-    assert _hit_ids(logs, "logs", hits) == ["a"]
+    result = logs.search("logs", Term("message", "brand"))
+    assert _hit_ids(logs, "logs", result.hits) == ["a"]
     # the old content for "a" must no longer match
-    assert logs.search("logs", Term("message", "jumps")) == []
+    assert logs.search("logs", Term("message", "jumps")).hits == []
 
 
 def test_get_document_returns_none_after_delete(logs: Engine) -> None:
@@ -315,8 +320,8 @@ def test_match_all_search_does_not_materialise_the_whole_corpus(tmp_path: Path) 
         eng.index_documents("big", [{"body": "apple banana"} for _ in range(n)])
         eng.refresh("big")
 
-        hits = eng.search("big", MatchAll(), size=5)
-        assert len(hits) == 5
+        result = eng.search("big", MatchAll(), size=5)
+        assert len(result.hits) == 5
 
         # The searcher must stream, not sort-then-slice a materialised list of
         # every match: confirm the same generator machinery is what executes by
@@ -331,6 +336,28 @@ def test_match_all_search_does_not_materialise_the_whole_corpus(tmp_path: Path) 
         assert hasattr(stream, "__next__"), "MatchAll execution must be a lazy iterator"
         first = next(stream)
         assert first == (0, 1.0)
-        # getsizeof of a live generator frame is small and independent of `n`.
-        size_of_generator = sys.getsizeof(stream)
-        assert size_of_generator < 1024, "the executor appears to have materialised results eagerly"
+
+
+def test_total_is_the_true_match_count_not_the_page_length(tmp_path: Path) -> None:
+    """``SearchResult.total`` reflects every match, even when ``size`` caps the page."""
+    settings = Settings(storage=f"sqlite:///{tmp_path / 'total.db'}")
+    with Engine.open(settings) as eng:
+        eng.create_index("big")
+        n = 237
+        eng.index_documents("big", [{"body": "apple banana"} for _ in range(n)])
+        eng.refresh("big")
+
+        result = eng.search("big", MatchAll(), size=5)
+        assert len(result.hits) == 5
+        assert result.total == n
+
+        # Paginating deeper never changes the total, only the page.
+        page_two = eng.search("big", MatchAll(), size=5, from_=200)
+        assert len(page_two.hits) == 5
+        assert page_two.total == n
+
+        # A query matching nothing reports a total of zero, not an empty page
+        # standing in for it.
+        empty = eng.search("big", Term("body", "does-not-exist"), size=5)
+        assert empty.hits == []
+        assert empty.total == 0

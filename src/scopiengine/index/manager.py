@@ -19,7 +19,7 @@ from typing import Any
 from scopiengine.analysis.registry import AnalyzerRegistry
 from scopiengine.errors import IngestError
 from scopiengine.index.reader import IndexReader
-from scopiengine.index.searcher import Hit
+from scopiengine.index.searcher import SearchResult
 from scopiengine.index.searcher import search as run_search
 from scopiengine.index.segments import force_merge as _merge_segments
 from scopiengine.index.segments import should_auto_merge
@@ -245,7 +245,7 @@ class IndexManager:
 
     # -- search and stats --------------------------------------------------
 
-    def search(self, name: str, query: Query, *, size: int = 10, from_: int = 0) -> list[Hit]:
+    def search(self, name: str, query: Query, *, size: int = 10, from_: int = 0) -> SearchResult:
         """Execute ``query`` against ``name``'s current, refreshed segments.
 
         Documents added since the last :meth:`refresh` are not yet visible —

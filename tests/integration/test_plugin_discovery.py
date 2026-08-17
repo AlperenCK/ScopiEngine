@@ -62,8 +62,8 @@ def test_engine_end_to_end_against_the_dummy_backend() -> None:
 
         from scopiengine.query.ast import Term
 
-        hits = eng.search("logs", Term("message", "dummy"))
-        assert len(hits) == 1
+        result = eng.search("logs", Term("message", "dummy"))
+        assert len(result.hits) == 1
         assert eng.get_document("logs", "1") == {"message": "hello from the dummy backend"}
 
 
@@ -78,6 +78,6 @@ def test_engine_end_to_end_using_the_shout_analyzer() -> None:
         from scopiengine.query.ast import Term
 
         # The shout analyzer uppercases at index time, so a lowercase term misses...
-        assert eng.search("docs", Term("title", "quiet")) == []
+        assert eng.search("docs", Term("title", "quiet")).hits == []
         # ...and the uppercased term is what actually matches.
-        assert len(eng.search("docs", Term("title", "QUIET"))) == 1
+        assert len(eng.search("docs", Term("title", "QUIET")).hits) == 1
