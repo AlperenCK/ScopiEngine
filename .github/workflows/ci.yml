@@ -50,6 +50,55 @@ jobs:
       - name: Pytest
         run: pytest -m "not slow and not mssql" --cov --cov-report=term-missing
 
+  mssql:
+    name: Tests (MS SQL Server)
+    runs-on: ubuntu-latest
+    # The server runs as a plain container rather than a `services:` block on
+    # purpose: a service container's entire error log is dumped into the job log at
+    # teardown, which buries the test output that explains a failure.
+    env:
+      SA_PASSWORD: "ScopiTest_2026Pw"
+      SCOPI_TEST_MSSQL_DSN: "mssql://sa:ScopiTest_2026Pw@localhost:1433/scopi?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Start SQL Server
+        run: |
+          docker run -d --name scopi-mssql -p 1433:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$SA_PASSWORD" -e MSSQL_PID=Developer \
+            mcr.microsoft.com/mssql/server:2022-latest
+      - name: Install Microsoft ODBC driver
+        run: |
+          curl -sSL -O https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          sudo apt-get update
+          ACCEPT_EULA=Y sudo apt-get install -y msodbcsql18 unixodbc-dev mssql-tools18
+          echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
+      - name: Install
+        run: pip install -e ".[dev,mssql]"
+      - name: Prepare the test database
+        run: |
+          for _ in $(seq 1 60); do
+            sqlcmd -C -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT 1" >/dev/null 2>&1 && break
+            sleep 2
+          done
+          sqlcmd -C -S localhost -U sa -P "$SA_PASSWORD" -Q "IF DB_ID('scopi') IS NULL CREATE DATABASE scopi"
+          # ScopiEngine reports this setting but never changes it, because the
+          # statement disconnects every other session. Enabling it is the database
+          # owner's call, so the owner makes it here.
+          sqlcmd -C -S localhost -U sa -P "$SA_PASSWORD" \
+            -Q "ALTER DATABASE scopi SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE"
+      - name: Smoke test the connection
+        run: scopi -s "$SCOPI_TEST_MSSQL_DSN" storage init && scopi -s "$SCOPI_TEST_MSSQL_DSN" storage info
+      - name: Pytest (mssql)
+        run: pytest -m mssql --tb=short -q
+      - name: Server log on failure
+        if: failure()
+        run: docker logs --tail 40 scopi-mssql
+
   build:
     name: Build distributions
     runs-on: ubuntu-latest
