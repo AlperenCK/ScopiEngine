@@ -198,9 +198,9 @@ shape.
   `"found": false`.
 - `_analyze`'s token objects carry `token` and `position` only — no
   `start_offset`/`end_offset`, since the analyzer layer doesn't track them.
-- `_search`'s `sort` only reorders the already-selected page, not the whole
-  index before truncation — see
-  [QUERY_LANGUAGE.md](QUERY_LANGUAGE.md#hitstotal-and-known-limitations).
+- `_search`'s `sort` is a genuine index-wide sort, bounded by
+  `max_sort_candidates` rather than by shard-local top-N behaviour — see
+  [QUERY_LANGUAGE.md](QUERY_LANGUAGE.md#sort-is-a-real-index-wide-sort).
 
 ### Running it in Docker
 

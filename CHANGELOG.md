@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-17
+
+Initial release.
+
 ### Added
 - Project scaffold: packaging, configuration, error hierarchy, logging setup and CLI entry point.
 - Pluggable storage abstraction (`StorageBackend`) behind which the entire inverted
@@ -203,10 +207,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/INGEST.md`: the pipeline, the single-transaction guarantee,
   checkpoint/resume/rotation semantics, `--id-mode`, tuning, honest
   throughput numbers and a troubleshooting section.
-
-## [1.0.0] - unreleased
-
-Initial release. See the [Unreleased](#unreleased) section while 1.0.0 is being assembled.
+- `examples/mappings/logs.json` and `examples/logs/sample-app.log`: a
+  realistic explicit log mapping and a matching sample JSON-lines log file,
+  used by the README quickstart and `docs/INGEST.md`.
+- A feature matrix and an ES DSL compatibility summary in `README.md`.
 
 [Unreleased]: https://github.com/AlperenCK/ScopiEngine/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/AlperenCK/ScopiEngine/releases/tag/v1.0.0

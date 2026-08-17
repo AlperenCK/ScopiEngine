@@ -30,3 +30,11 @@ def test_author_is_declared_once() -> None:
     project = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]
     assert project["authors"] == [{"name": "Alperen CK", "email": "alprncck17@gmail.com"}]
     assert scopiengine.__author__ == "Alperen CK"
+
+
+def test_changelog_has_an_entry_for_this_version() -> None:
+    changelog = Path(__file__).resolve().parents[2] / "CHANGELOG.md"
+    heading = f"## [{scopiengine.__version__}]"
+    assert heading in changelog.read_text(encoding="utf-8"), (
+        f"CHANGELOG.md has no {heading!r} heading for the current version"
+    )
