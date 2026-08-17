@@ -1,6 +1,6 @@
 # Architecture
 
-This document covers the layer PR 3 added on top of storage: analysis, mapping,
+This document covers the layer built on top of storage: analysis, mapping,
 segments, scoring and the search path. For the storage layer itself (postings
 codec, backend interface, DSNs) see [STORAGE_BACKENDS.md](STORAGE_BACKENDS.md).
 
@@ -163,7 +163,8 @@ to derive both from the same "is this ordinal currently live" check
 
 ## The search path
 
-`scopiengine.query.ast` defines the query AST PR 4's parsers will build:
+`scopiengine.query.ast` defines the query AST ScopiQL and the JSON DSL parsers
+build (see [QUERY_LANGUAGE.md](QUERY_LANGUAGE.md)):
 `MatchAll | Term | Phrase | Prefix | Range | Exists | Bool(must, should,
 must_not, filter)`, all frozen dataclasses. `scopiengine.index.searcher`
 executes it against an `IndexReader` — a cached, read-only snapshot built once
@@ -233,7 +234,6 @@ more than one storage round trip.
 
 ## What is explicitly out of scope here
 
-- **Query parsers** (ScopiQL, JSON-DSL): PR 4. Only the AST exists so far.
 - **Stemming**: ships as the reference plugin in 1.1 — the whole reason
   `AnalyzerRegistry` is a mutable registry rather than a fixed enum.
 - **Remote ingest sources**: `scopiengine.ingest.sources.Source` is a narrow

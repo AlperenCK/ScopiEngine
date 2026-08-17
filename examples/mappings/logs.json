@@ -1,0 +1,29 @@
+{
+  "properties": {
+    "@timestamp": {
+      "type": "date"
+    },
+    "level": {
+      "type": "keyword"
+    },
+    "service": {
+      "type": "keyword"
+    },
+    "host": {
+      "type": "keyword"
+    },
+    "status": {
+      "type": "long"
+    },
+    "latency_ms": {
+      "type": "double"
+    },
+    "trace_id": {
+      "type": "keyword"
+    },
+    "message": {
+      "type": "text",
+      "analyzer": "standard"
+    }
+  }
+}
