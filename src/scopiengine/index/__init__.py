@@ -3,6 +3,6 @@
 from __future__ import annotations
 
 from scopiengine.index.manager import IndexManager
-from scopiengine.index.searcher import Hit
+from scopiengine.index.searcher import Hit, SearchResult
 
-__all__ = ["Hit", "IndexManager"]
+__all__ = ["Hit", "IndexManager", "SearchResult"]

@@ -52,6 +52,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   | Range | Exists | Bool(must, should, must_not, filter)`, frozen dataclasses,
   executed by the searcher today. The ScopiQL and JSON-DSL parsers that build these
   from user input are PR 4.
+- **`SearchResult`** (`scopiengine.index.searcher`): `Engine.search`/
+  `IndexManager.search`/`searcher.search` now return `SearchResult(hits, total)`
+  instead of a bare `list[Hit]` — `total` is the true number of matching
+  documents, computed by counting every match the executor already streams
+  past while filling its bounded top-N heap, never the page length and never
+  capped by `size`. `searcher.iter_matches` is a new, unranked streaming
+  entry point (every match, no top-N heap) for aggregations and the ScopiQL
+  `stats` stage. `Engine.get_mapping` is a small new convenience for callers
+  that need the parsed `Mapping`, not the raw dict `get_index` returns.
+- **ScopiQL** (`scopiengine.query.scopiql`): a hand-written tokenizer and
+  recursive-descent parser (no parser-generator dependency) for a compact,
+  log-search-first query language — `field:value`, comparisons (`>=`/`>`/`<=`/`<`),
+  inclusive ranges (`[a TO b]`), relative time (`now`/`now-1h`/`now+30m`,
+  resolved against a caller-suppliable instant for deterministic tests),
+  quoted phrases, `*` prefixes, `field:(a OR b)` groups, `_exists_`, bare
+  terms/phrases matched across every `text` field, and `AND`/`OR`/`NOT`
+  (`&&`/`||`/`!`) with implicit `AND` between adjacent terms. Pipe stages:
+  `sort`, `limit`, `fields`, `stats count() by <field>`. Parse errors name the
+  offending character position and what was expected there, not just
+  "invalid syntax." A field the index has no mapping for parses fine and
+  simply matches nothing, by design — see `docs/QUERY_LANGUAGE.md`.
+- **The JSON DSL** (`scopiengine.query.dsl`): a deliberate Elasticsearch query
+  DSL subset — `match`, `match_phrase`, `match_all`, `term`, `terms`,
+  `prefix`, `range`, `exists`, `bool` (`must`/`should`/`must_not`/`filter`),
+  plus top-level `from`, `size`, `sort`, `_source`, `aggs`/`aggregations`
+  (`terms` only) — compiled through the exact same field-resolution code
+  ScopiQL uses (`scopiengine.query.compiler`), so the two languages produce
+  byte-identical AST for equivalent queries. Any unsupported or misspelled
+  clause/option raises `UnsupportedFeatureError` naming the exact key —
+  never silently ignored. Full compatibility matrix in
+  `docs/QUERY_LANGUAGE.md`.
+- **`scopiengine.query.results`**: the Elasticsearch-shaped response envelope
+  (`took`, `hits.total.value`, `hits.hits[]` with `_id`/`_score`/`_source`,
+  `aggregations`, plus a `scopi` block carrying the compiled query AST,
+  segments touched and timings) and `run_scopiql`/`run_dsl`, the two entry
+  points the REST API and `scopi search` both call — so a query gives the
+  same answer whether or not a server happens to be running. Includes a
+  `terms` aggregation (bucket-by-field, counted) shared by ScopiQL's `stats`
+  stage and the DSL's `aggs`.
+- **The REST API** (`scopiengine.api`, FastAPI): `GET /`, `GET /_health`,
+  `GET /_cluster/health`, `GET /_cat/indices`, `PUT|GET|HEAD|DELETE /{index}`,
+  `POST /{index}/_refresh`, `POST /{index}/_forcemerge`, `GET /{index}/_stats`,
+  `POST /{index}/_doc`, `PUT|GET|DELETE /{index}/_doc/{id}`,
+  `POST /_bulk` and `POST /{index}/_bulk` (ES NDJSON, `index`/`create`/`delete`,
+  per-item results and an `errors` flag), `GET|POST /{index}/_search`
+  (`?q=` for ScopiQL, a JSON body for the DSL), `POST /{index}/_scopiql`,
+  `POST /{index}/_analyze`, `GET /_plugins`. One `Engine` opens at ASGI
+  startup (a `lifespan` handler) and is shared by every request; search and
+  indexing endpoints are synchronous `def`s on purpose, so Starlette runs
+  them in its worker threadpool and the synchronous storage layer never
+  blocks the event loop. Every `ScopiError` renders through one exception
+  handler as the same ES-shaped envelope, at the matching status.
+- CLI additions: `scopi index create|list|show|delete|stats|refresh|merge`,
+  `scopi doc put|get|delete`, `scopi bulk <index> --file docs.ndjson`,
+  `scopi search <index> "<scopiql>" [--dsl f.json] [--size] [--from] [--json] [--explain]`,
+  `scopi analyze --analyzer <name> "<text>"`, `scopi plugin list`,
+  `scopi serve [--host] [--port]`. The CLI drives the engine in process, no
+  server required; `doc put`/`bulk` refresh automatically before exiting
+  (each CLI invocation is its own short-lived process, unlike `scopi serve`,
+  so a write left unflushed would otherwise be durably stored but silently
+  unsearchable forever).
+- `Dockerfile` (`python:3.11-slim`, non-root user, `EXPOSE 9500`, no system
+  packages needed for the default `sqlite://` backend) and `docker-compose.yml`
+  (a named volume for `/data`, a commented-out MS SQL Server profile).
+- `docs/QUERY_LANGUAGE.md`: the full ScopiQL grammar, worked examples, and an
+  explicit ES DSL compatibility matrix (supported/unsupported, with what to
+  use instead). `docs/USAGE.md` now documents every command group with real
+  syntax, and the REST API's full endpoint table.
+- A ScopiQL/DSL parity test table (`tests/integration/test_api.py`):
+  equivalent `(ScopiQL, DSL)` query pairs are asserted to return identical
+  hit ids **and** identical scores, in order — the guarantee that the
+  shorter syntax is never a second-class citizen.
 - A plugin system (`scopiengine.plugins`) with four hooks — `analyzer`,
   `ingest_processor` (contract only; PR 5 supplies real processors),
   `storage_backend`, `event` — discovered from built-ins, `importlib.metadata`

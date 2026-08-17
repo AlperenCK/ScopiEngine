@@ -1,0 +1,42 @@
+services:
+  scopiengine:
+    build: .
+    image: scopiengine:latest
+    ports:
+      - "9500:9500"
+    environment:
+      SCOPI_STORAGE: "sqlite:////data/scopi.db"
+      SCOPI_LOG_FORMAT: json
+    volumes:
+      - scopi-data:/data
+    restart: unless-stopped
+
+  # Optional MS SQL Server backend, for `mssql://` instead of the zero-config
+  # `sqlite://` default — see docs/STORAGE_BACKENDS.md for the DSN and driver
+  # details, and the `scopiengine[mssql]` extra it requires. Enable with:
+  #
+  #   docker compose --profile mssql up
+  #
+  # and point the `scopiengine` service at it by uncommenting the SCOPI_STORAGE
+  # override below (and removing the sqlite:// one above).
+  #
+  # mssql:
+  #   image: mcr.microsoft.com/mssql/server:2022-latest
+  #   profiles: ["mssql"]
+  #   environment:
+  #     ACCEPT_EULA: "Y"
+  #     MSSQL_SA_PASSWORD: "Scopi!Engine123"
+  #   ports:
+  #     - "1433:1433"
+  #   volumes:
+  #     - mssql-data:/var/opt/mssql
+  #
+  # scopiengine:
+  #   environment:
+  #     SCOPI_STORAGE: "mssql://sa:Scopi!Engine123@mssql:1433/scopiengine"
+  #   depends_on:
+  #     - mssql
+
+volumes:
+  scopi-data:
+  # mssql-data:

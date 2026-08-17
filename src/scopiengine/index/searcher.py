@@ -48,7 +48,7 @@ from scopiengine.index.scoring import bm25_score
 from scopiengine.query.ast import Bool, Exists, MatchAll, Phrase, Prefix, Query, Range, Term
 from scopiengine.storage.codec import decode_postings
 
-__all__ = ["Hit", "search"]
+__all__ = ["Hit", "SearchResult", "iter_matches", "search"]
 
 #: One (document ordinal, running score) pair, always yielded in ascending
 #: ordinal order by every function in this module.
@@ -67,6 +67,24 @@ class Hit:
 
     doc_ord: int
     score: float
+
+
+@dataclass(frozen=True, slots=True)
+class SearchResult:
+    """The outcome of one :func:`search` call: a page of hits plus the true total.
+
+    Attributes:
+        hits: The requested page (``size`` hits after skipping ``from_``),
+            ordered by descending score, ties broken by ascending ordinal.
+        total: The number of live documents the query matched, in total — not
+            capped by ``size`` and not the page length. Computed by counting
+            every match :func:`search` streams past while filling its bounded
+            top-N heap, so a query never pays for a second full pass just to
+            learn how many documents it matched.
+    """
+
+    hits: list[Hit]
+    total: int
 
 
 # -- streaming combinators ----------------------------------------------------
@@ -417,10 +435,23 @@ def _execute_bool(node: Bool, reader: IndexReader) -> _Matcher:
     yield from gated
 
 
+def iter_matches(reader: IndexReader, query: Query) -> Iterator[Hit]:
+    """Stream every match, unranked and unbounded — the whole result set, not a page.
+
+    Unlike :func:`search`, this never buffers a top-N heap: it is for callers
+    that must see every match rather than a ranked page — aggregations and the
+    ScopiQL ``stats`` pipeline stage (see :mod:`scopiengine.query.results`).
+    Memory stays bounded by whatever the caller itself accumulates per match,
+    not by this function, which only ever holds one match at a time.
+    """
+    for doc_ord, score in _execute(query, reader):
+        yield Hit(doc_ord=doc_ord, score=score)
+
+
 # -- top-level entry point ---------------------------------------------------
 
 
-def search(reader: IndexReader, query: Query, *, size: int = 10, from_: int = 0) -> list[Hit]:
+def search(reader: IndexReader, query: Query, *, size: int = 10, from_: int = 0) -> SearchResult:
     """Execute ``query`` and return the top ``size`` hits after skipping ``from_``.
 
     Args:
@@ -430,11 +461,12 @@ def search(reader: IndexReader, query: Query, *, size: int = 10, from_: int = 0)
         from_: Number of top-ranked hits to skip, for pagination.
 
     Returns:
-        Hits ordered by descending score, ties broken by ascending ordinal —
-        a deterministic order that depends only on each match's own score and
-        ordinal, never on how the index happens to be split into segments (see
-        the module docstring, and the force-merge invariant test that checks
-        exactly this).
+        A :class:`SearchResult` whose ``hits`` are ordered by descending score,
+        ties broken by ascending ordinal — a deterministic order that depends
+        only on each match's own score and ordinal, never on how the index
+        happens to be split into segments (see the module docstring, and the
+        force-merge invariant test that checks exactly this) — and whose
+        ``total`` is the true match count, not the page length.
 
     Raises:
         InvalidQueryError: The AST contains an unrecognised node type.
@@ -444,11 +476,13 @@ def search(reader: IndexReader, query: Query, *, size: int = 10, from_: int = 0)
     if size < 0 or from_ < 0:
         raise InvalidQueryError("size and from_ must be >= 0")
     limit = size + from_
-    if limit == 0:
-        return []
 
     heap: list[tuple[float, int, int, float]] = []
+    total = 0
     for doc_ord, score in _execute(query, reader):
+        total += 1
+        if limit == 0:
+            continue
         rank_key = (score, -doc_ord)
         if len(heap) < limit:
             heapq.heappush(heap, (*rank_key, doc_ord, score))
@@ -457,4 +491,5 @@ def search(reader: IndexReader, query: Query, *, size: int = 10, from_: int = 0)
 
     ranked = sorted(heap, key=lambda row: row[:2], reverse=True)
     page = ranked[from_ : from_ + size]
-    return [Hit(doc_ord=doc_ord, score=score) for _s, _neg_ord, doc_ord, score in page]
+    hits = [Hit(doc_ord=doc_ord, score=score) for _s, _neg_ord, doc_ord, score in page]
+    return SearchResult(hits=hits, total=total)

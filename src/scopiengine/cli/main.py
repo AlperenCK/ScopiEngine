@@ -129,9 +129,22 @@ def info(ctx: typer.Context) -> None:
 
 def _register_commands() -> None:
     """Attach optional command groups, skipping any not present in this build."""
+    from scopiengine.cli.commands.doc_cmd import app as doc_app
+    from scopiengine.cli.commands.doc_cmd import bulk
+    from scopiengine.cli.commands.index_cmd import app as index_app
+    from scopiengine.cli.commands.plugin_cmd import app as plugin_app
+    from scopiengine.cli.commands.search_cmd import analyze, search
+    from scopiengine.cli.commands.serve_cmd import serve
     from scopiengine.cli.commands.storage_cmd import app as storage_app
 
     app.add_typer(storage_app, name="storage")
+    app.add_typer(index_app, name="index")
+    app.add_typer(doc_app, name="doc")
+    app.add_typer(plugin_app, name="plugin")
+    app.command("bulk", help="Bulk-index documents from an NDJSON file.")(bulk)
+    app.command("search", help="Search an index with ScopiQL or a JSON DSL body.")(search)
+    app.command("analyze", help="Run a named analyzer over text.")(analyze)
+    app.command("serve", help="Run the REST API.")(serve)
 
 
 _register_commands()
