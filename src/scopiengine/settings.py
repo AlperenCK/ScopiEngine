@@ -39,6 +39,7 @@ _TYPES: dict[str, type] = {
     "flush_interval": float,
     "queue_size": int,
     "max_segments": int,
+    "max_sort_candidates": int,
 }
 
 
@@ -60,6 +61,17 @@ class Settings:
         flush_interval: Seconds before a partial ingestion batch is flushed anyway.
         queue_size: Bounded queue depth between the ingest reader and the indexer.
         max_segments: Live segment count that triggers an automatic merge.
+        max_sort_candidates: Maximum number of matches a field-sorted search
+            (``| sort <field>`` in ScopiQL, or the DSL's ``sort``) examines
+            while looking for the true index-wide top ``from_ + size``. Past
+            this many matches, the sort stops examining further candidates —
+            ``total`` stays the true, complete match count regardless, but the
+            page itself is drawn only from the examined candidates, and the
+            response's ``scopi.sort_truncated`` flag is set so a truncated
+            sort is never indistinguishable from a complete one. A pure
+            ``_score`` sort (the default, or no ``sort`` at all) never
+            consults this setting — it is already exact and unbounded, since
+            relevance ranking is computed inline while matching.
     """
 
     storage: str = DEFAULT_STORAGE_DSN
@@ -75,6 +87,7 @@ class Settings:
     flush_interval: float = 2.0
     queue_size: int = 8
     max_segments: int = 10
+    max_sort_candidates: int = 10000
 
     def __post_init__(self) -> None:
         self.validate()
@@ -89,7 +102,14 @@ class Settings:
             raise ConfigurationError(
                 f"log_format must be 'text' or 'json', got {self.log_format!r}"
             )
-        for name in ("buffer_mb", "batch_size", "batch_bytes", "queue_size", "max_segments"):
+        for name in (
+            "buffer_mb",
+            "batch_size",
+            "batch_bytes",
+            "queue_size",
+            "max_segments",
+            "max_sort_candidates",
+        ):
             value = getattr(self, name)
             if value < 1:
                 raise ConfigurationError(f"{name} must be >= 1, got {value}")

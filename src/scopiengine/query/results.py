@@ -27,34 +27,57 @@ Envelope shape
     }
 
 ``hits.total.value`` is always the true match count (see
-:class:`scopiengine.index.searcher.SearchResult`), never the page length.
+:class:`scopiengine.index.searcher.SearchResult`), never the page length —
+regardless of whether a field sort had to truncate (see below).
 
-Known limitations
-------------------
-``sort`` (ScopiQL's ``| sort`` stage, or the DSL's ``sort``) only **reorders
-the page** the relevance search already selected (bounded by ``size``/
-``limit``) — it is not a full index-wide field sort executed before
-truncation, the way Elasticsearch's is. For a field with more matches than
-the page size, narrow with a filter (a range on ``@timestamp``, for example)
-rather than relying on ``sort`` + a large ``size`` to see "the most recent N"
-correctly. This is documented again, with the reasoning, in
-``docs/QUERY_LANGUAGE.md``.
+Sort: index-wide, not page-local
+----------------------------------
+``sort`` (ScopiQL's ``| sort`` stage, or the DSL's ``sort``) on a real field
+is a genuine index-wide sort, not a re-sort of a relevance-ranked page: a
+pure ``_score`` sort (the default when there is no ``sort`` at all) is exact
+and unbounded, computed inline while matching, so it keeps the original
+single-pass fast path. Any *field* sort instead streams every match
+(:func:`~scopiengine.index.searcher.iter_matches`), fetches each candidate's
+sort key from its stored source in batches, and folds candidates into a
+bounded min-heap of the best ``from_ + size`` seen so far — so memory scales
+with the page size, never with the number of matches, while the result is
+still the true top-N by that field, not an artifact of which documents
+happened to rank highest by relevance.
+
+That candidate scan stops after
+:attr:`~scopiengine.settings.Settings.max_sort_candidates` matches (default
+``10000``) — past that point, a field sort is no longer guaranteed exact.
+When it truncates, ``total`` still reports the true, complete match count
+(counting continues after the cap, just without the per-candidate source
+fetch), but the response's ``scopi.sort_truncated`` is set to ``true`` (with
+``scopi.max_sort_candidates`` alongside it) so a truncated sort is never
+silently indistinguishable from a complete one, and a warning is logged
+naming the setting. See ``docs/QUERY_LANGUAGE.md`` for the full picture,
+including why a *page-local* re-sort was rejected: for a filter-shaped query
+like ``level:ERROR``, BM25 relevance is close to meaningless, so "the top N
+by relevance, then sorted among themselves" silently answers a different
+question than "the N most recent."
 """
 
 from __future__ import annotations
 
+import heapq
 import json
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from scopiengine.index.reader import IndexReader
 from scopiengine.index.searcher import Hit, iter_matches
+from scopiengine.logging_conf import get_logger
 from scopiengine.mapping.mapping import Mapping
 from scopiengine.query.ast import Bool, Exists, MatchAll, Phrase, Prefix, Query, Range, Term
 from scopiengine.query.dsl import TermsAgg, compile_dsl
 from scopiengine.query.scopiql import SortSpec
 from scopiengine.query.scopiql import parse as parse_scopiql
+
+_logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     # Deferred to a type-checking-only import: `Engine` sits above this module
@@ -168,31 +191,150 @@ def _project_source(doc: dict[str, Any], source: bool | tuple[str, ...]) -> dict
     return projected
 
 
-def _apply_sort(
-    hits: list[Hit], docs_by_ord: dict[int, dict[str, Any]], specs: tuple[SortSpec, ...]
-) -> list[Hit]:
-    """Reorder an already-fetched page of hits by ``specs`` — see the module
-    docstring's "Known limitations" for why this is a page-local sort.
+def _needs_index_wide_sort(sort: tuple[SortSpec, ...]) -> bool:
+    """Whether ``sort`` requires :func:`_stream_sorted_hits`.
 
-    Applies stably from the last spec to the first, so an earlier spec breaks
-    ties left by a later one — the usual way to implement a multi-key sort
-    with a single-key ``sort()``. Within one spec, documents missing that
-    field sort after every document that has it, in both ascending and
-    descending order.
+    A pure ``_score`` *descending* sort — explicit, or the default when
+    ``sort`` is empty — is already exactly what a normal relevance search
+    returns, so it keeps the original, unbounded, single-pass fast path
+    untouched. Anything else (any real field, ``_score`` ascending, or a
+    multi-key sort) needs the bounded index-wide path to be correct.
     """
-    ordered = list(hits)
-    for spec in reversed(specs):
+    if not sort:
+        return False
+    return not (len(sort) == 1 and sort[0].field == "_score" and sort[0].descending)
 
-        def key(hit: Hit, spec: SortSpec = spec) -> Any:
-            if spec.field == "_score":
-                return hit.score
-            return _extract_field(docs_by_ord.get(hit.doc_ord, {}), spec.field)
 
-        present = [h for h in ordered if key(h) is not None]
-        missing = [h for h in ordered if key(h) is None]
-        present.sort(key=key, reverse=spec.descending)
-        ordered = present + missing
-    return ordered
+@dataclass(frozen=True, slots=True)
+class _RankEntry:
+    """One sort candidate's extracted key, ready for the bounded top-N heap.
+
+    Attributes:
+        keyvals: One extracted value per :class:`SortSpec` in ``sort``, aligned by index.
+        missing: Parallel to ``keyvals``: whether that value was absent.
+        doc_ord: The candidate's document ordinal.
+        score: Its relevance score — carried through so a field-sorted
+            response can still show ``_score``, the way Elasticsearch does
+            with ``track_scores``.
+        sort: The sort specs ``keyvals``/``missing`` are aligned to — shared
+            by reference across every entry in one sort, not copied.
+    """
+
+    keyvals: tuple[Any, ...]
+    missing: tuple[bool, ...]
+    doc_ord: int
+    score: float
+    sort: tuple[SortSpec, ...]
+
+    def __lt__(self, other: _RankEntry) -> bool:
+        return _rank_compare(self, other) < 0
+
+
+def _rank_compare(a: _RankEntry, b: _RankEntry) -> int:
+    """Compare two candidates field by field: positive means ``a`` ranks first.
+
+    A document missing a sort field always ranks after one that has it,
+    regardless of that field's direction — the same rule Elasticsearch/Lucene
+    use. Ties fall through to the next sort key; a full tie on every key
+    breaks on ascending ``doc_ord`` — arbitrary, but deterministic, matching
+    this project's usual tie-break style (see
+    :func:`scopiengine.index.searcher.search`).
+    """
+    for v1, m1, v2, m2, spec in zip(
+        a.keyvals, a.missing, b.keyvals, b.missing, a.sort, strict=True
+    ):
+        if m1 and m2:
+            continue
+        if m1 != m2:
+            return -1 if m1 else 1
+        if v1 == v2:
+            continue
+        if spec.descending:
+            return 1 if v1 > v2 else -1
+        return 1 if v1 < v2 else -1
+    if a.doc_ord == b.doc_ord:
+        return 0
+    return 1 if a.doc_ord < b.doc_ord else -1
+
+
+def _stream_sorted_hits(
+    engine: Engine,
+    index: str,
+    mapping: Mapping,
+    query: Query,
+    sort: tuple[SortSpec, ...],
+    *,
+    from_: int,
+    size: int,
+    max_sort_candidates: int,
+    batch_size: int = 500,
+) -> tuple[list[Hit], int, bool]:
+    """The true index-wide top ``from_ + size`` by ``sort`` — never a re-sort
+    of a relevance-ranked page. See the module docstring for the full design.
+
+    Returns:
+        ``(hits, total, truncated)`` — ``hits`` is already the final
+        ``from_:from_ + size`` page, ordered by ``sort``; ``total`` is the
+        true, complete match count regardless of truncation; ``truncated``
+        is whether ``max_sort_candidates`` was hit before every match was
+        examined.
+    """
+    limit = from_ + size
+    reader = IndexReader(engine.storage, index, mapping)
+    heap: list[_RankEntry] = []
+    total = 0
+    examined = 0
+    truncated = False
+
+    def flush(pending: list[Hit]) -> None:
+        if not pending:
+            return
+        ords = [hit.doc_ord for hit in pending]
+        stored = {doc.doc_ord: doc for doc in engine.storage.get_documents(index, ords)}
+        for hit in pending:
+            stored_doc = stored.get(hit.doc_ord)
+            doc = json.loads(stored_doc.source) if stored_doc is not None else {}
+            keyvals: list[Any] = []
+            missing: list[bool] = []
+            for spec in sort:
+                value = hit.score if spec.field == "_score" else _extract_field(doc, spec.field)
+                keyvals.append(value)
+                missing.append(value is None)
+            entry = _RankEntry(
+                keyvals=tuple(keyvals),
+                missing=tuple(missing),
+                doc_ord=hit.doc_ord,
+                score=hit.score,
+                sort=sort,
+            )
+            if limit <= 0:
+                continue
+            if len(heap) < limit:
+                heapq.heappush(heap, entry)
+            elif heap[0] < entry:
+                heapq.heapreplace(heap, entry)
+
+    batch: list[Hit] = []
+    for hit in iter_matches(reader, query):
+        total += 1
+        if examined < max_sort_candidates:
+            batch.append(hit)
+            examined += 1
+            if len(batch) >= batch_size:
+                flush(batch)
+                batch = []
+        else:
+            # Past the cap: keep counting for an accurate `total`, but stop
+            # fetching source and stop trying to rank — the module docstring
+            # and `Settings.max_sort_candidates` cover what this means for
+            # the caller.
+            truncated = True
+    flush(batch)
+
+    ranked = sorted(heap, reverse=True)
+    page = ranked[from_ : from_ + size]
+    hits = [Hit(doc_ord=entry.doc_ord, score=entry.score) for entry in page]
+    return hits, total, truncated
 
 
 def terms_aggregation(
@@ -261,14 +403,38 @@ def _render(
     mapping: Mapping,
 ) -> dict[str, Any]:
     started = time.perf_counter()
-    result = engine.search(index, query, size=size, from_=from_)
 
-    ords = [hit.doc_ord for hit in result.hits]
+    sort_truncated: bool | None = None
+    if _needs_index_wide_sort(sort):
+        hits, total, sort_truncated = _stream_sorted_hits(
+            engine,
+            index,
+            mapping,
+            query,
+            sort,
+            from_=from_,
+            size=size,
+            max_sort_candidates=engine.settings.max_sort_candidates,
+        )
+        if sort_truncated:
+            _logger.warning(
+                "field sort on index %r truncated after examining "
+                "max_sort_candidates=%d matches (true total=%d); results are "
+                "drawn only from the examined candidates and may not be the "
+                "exact index-wide top %d — raise Settings.max_sort_candidates "
+                "if this index's field sorts need a wider guarantee",
+                index,
+                engine.settings.max_sort_candidates,
+                total,
+                from_ + size,
+            )
+    else:
+        result = engine.search(index, query, size=size, from_=from_)
+        hits, total = list(result.hits), result.total
+
+    ords = [hit.doc_ord for hit in hits]
     stored = engine.storage.get_documents(index, ords) if ords else []
     by_ord = {doc.doc_ord: doc for doc in stored}
-    docs_by_ord = {doc_ord: json.loads(doc.source) for doc_ord, doc in by_ord.items()}
-
-    hits = _apply_sort(result.hits, docs_by_ord, sort) if sort else list(result.hits)
 
     hits_json: list[dict[str, Any]] = []
     for hit in hits:
@@ -276,7 +442,7 @@ def _render(
         if stored_doc is None:
             continue
         entry: dict[str, Any] = {"_index": index, "_id": stored_doc.doc_id, "_score": hit.score}
-        projected = _project_source(docs_by_ord[hit.doc_ord], source)
+        projected = _project_source(json.loads(stored_doc.source), source)
         if projected is not None:
             entry["_source"] = projected
         hits_json.append(entry)
@@ -294,19 +460,25 @@ def _render(
     segments_touched = int(engine.stats(index).get("segment_count", 0))
     max_score = max((hit.score for hit in hits), default=None)
 
+    scopi_block: dict[str, Any] = {
+        "query": ast_to_dict(query),
+        "segments_touched": segments_touched,
+        "took_ms": round(took_ms, 3),
+    }
+    if sort_truncated is not None:
+        scopi_block["sort_truncated"] = sort_truncated
+        if sort_truncated:
+            scopi_block["max_sort_candidates"] = engine.settings.max_sort_candidates
+
     response: dict[str, Any] = {
         "took": round(took_ms),
         "timed_out": False,
         "hits": {
-            "total": {"value": result.total, "relation": "eq"},
+            "total": {"value": total, "relation": "eq"},
             "max_score": max_score,
             "hits": hits_json,
         },
-        "scopi": {
-            "query": ast_to_dict(query),
-            "segments_touched": segments_touched,
-            "took_ms": round(took_ms, 3),
-        },
+        "scopi": scopi_block,
     }
     if aggregations is not None:
         response["aggregations"] = aggregations

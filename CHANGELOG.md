@@ -91,6 +91,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same answer whether or not a server happens to be running. Includes a
   `terms` aggregation (bucket-by-field, counted) shared by ScopiQL's `stats`
   stage and the DSL's `aggs`.
+- **A field `sort` (`| sort <field>`, or the DSL's `sort`) is a genuine
+  index-wide sort**, not a re-sort of a relevance-ranked page: it streams
+  every match, fetches each candidate's sort key from stored source in
+  batches, and keeps a bounded record of the true top `from_ + size` by that
+  field — so "the 20 most recent errors" means the actual 20 most recent,
+  not 20 arbitrary high-relevance matches reordered among themselves. Bounded
+  by the new `Settings.max_sort_candidates` (default `10000`,
+  `SCOPI_MAX_SORT_CANDIDATES`); a sort that has to stop before examining
+  every match sets `scopi.sort_truncated: true` (with `scopi.max_sort_candidates`)
+  rather than silently returning an incomplete result indistinguishable from
+  a complete one, logs a warning naming the setting, and still reports the
+  true, uncapped `hits.total.value`. A pure `_score` sort (the default) needs
+  none of this and keeps the original single-pass path.
 - **The REST API** (`scopiengine.api`, FastAPI): `GET /`, `GET /_health`,
   `GET /_cluster/health`, `GET /_cat/indices`, `PUT|GET|HEAD|DELETE /{index}`,
   `POST /{index}/_refresh`, `POST /{index}/_forcemerge`, `GET /{index}/_stats`,

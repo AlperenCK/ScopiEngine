@@ -348,6 +348,10 @@ _PARITY_PAIRS: list[tuple[str, dict]] = [
             }
         },
     ),
+    (
+        "status:>=400 | sort -status",
+        {"query": {"range": {"status": {"gte": 400}}}, "sort": [{"status": "desc"}]},
+    ),
 ]
 
 

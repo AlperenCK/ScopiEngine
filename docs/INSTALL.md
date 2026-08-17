@@ -89,6 +89,7 @@ Unknown keys are rejected rather than ignored, so a typo surfaces immediately.
 | `flush_interval` | `2.0` | Seconds before a partial batch is flushed anyway |
 | `queue_size` | `8` | Bounded queue depth between reader and indexer |
 | `max_segments` | `10` | Live segment count that triggers an automatic merge |
+| `max_sort_candidates` | `10000` | Matches a field-sorted search examines before giving up on an exact index-wide sort — see [QUERY_LANGUAGE.md](QUERY_LANGUAGE.md#hitstotal-and-known-limitations) |
 
 Logs go to stderr, command output to stdout — so `scopi search --json ... | jq`
 stays usable with logging turned on.

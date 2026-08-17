@@ -153,7 +153,7 @@ ignored, so a query can never quietly return the wrong results.
 |---|---|---|
 | `query` | ✅ | Defaults to `match_all` if omitted. |
 | `from` / `size` | ✅ | |
-| `sort` | ✅ | String shorthand (`"field"`, `"-field"`), `{"field": "asc"|"desc"}`, or `{"field": {"order": "asc"|"desc"}}`. See [known limitations](#hitstotal-and-known-limitations) below — this is a page-local sort, not a full index-wide one. |
+| `sort` | ✅ | String shorthand (`"field"`, `"-field"`), `{"field": "asc"|"desc"}`, or `{"field": {"order": "asc"|"desc"}}`. A genuine index-wide sort, bounded by `max_sort_candidates` — see [below](#sort-is-a-real-index-wide-sort). |
 | `_source` | ✅ | `true`/`false`, a field name, or a list of field names. |
 | `aggs` / `aggregations` | ✅ (partial) | Only `terms` (see [Aggregations](#aggregations)). Specifying both `aggs` and `aggregations` in the same request is rejected. |
 | `min_score`, `track_total_hits`, `explain`, `highlight`, `script_fields`, `post_filter`, `collapse`, `search_after`, `pit`, `runtime_mappings`, `stored_fields`, `docvalue_fields`, `rescore`, `suggest`, `_name`/`indices_boost` | ❌ | Not implemented for 1.0. `track_total_hits` in particular is unnecessary here — `hits.total.value` is always the true, uncapped match count (see below), never an approximation you'd need to opt into. |
@@ -195,19 +195,58 @@ the page length and never approximated — `scopiengine.index.searcher.search`
 counts every match while it streams past to fill the bounded top-N heap, so
 the count costs nothing beyond what ranking already does. There is no
 `track_total_hits` knob because there is nothing it would need to opt into.
+This stays true even when a field sort has to truncate (below) — `total`
+never reflects the cap.
+
+### `sort` is a real index-wide sort
+
+`level:ERROR | sort -@timestamp | limit 20` — "the 20 most recent errors" —
+is the headline use case this engine exists to serve, and it means what it
+says: the *genuinely* 20 most recent matching documents, not the 20
+highest-relevance matches reordered among themselves. For a filter-shaped
+query like `level:ERROR`, BM25 relevance is close to meaningless (most
+matches score near-identically), so a page-local "rank by relevance first,
+then sort that page" would silently return an arbitrary 20 — correctly
+ordered, but the wrong 20 entirely. ScopiQL and the DSL both avoid that: a
+sort naming any real field (anything other than a plain, descending
+`_score`) streams every match, extracts each candidate's sort key from its
+stored source, and keeps a bounded record of the best `from_ + size`
+candidates seen — so the page returned is the true index-wide top-N, and
+memory scales with the page size, never with how many documents match. A
+pure `_score` sort (the default, when there is no `sort` at all) needs none
+of this — relevance is already computed while matching, so it keeps the
+original single-pass path.
+
+That per-query candidate scan is bounded by
+[`max_sort_candidates`](INSTALL.md) (default `10000`, configurable via
+`SCOPI_MAX_SORT_CANDIDATES`) — past that many matches, a field sort is no
+longer guaranteed to be the exact index-wide top-N. When it has to stop
+early, the response says so rather than returning a truncated result that
+looks identical to a complete one:
+
+```json
+{
+  "scopi": {
+    "sort_truncated": true,
+    "max_sort_candidates": 10000
+  }
+}
+```
+
+`hits.total.value` still reports the true, complete match count in this
+case — counting continues past the cap, it is only the per-candidate sort
+key lookup that stops — and a warning naming `max_sort_candidates` is logged
+server-side. If a query's field sort routinely needs to consider more than
+`max_sort_candidates` matches to find the true top-N, narrow it with a
+filter first (a `@timestamp` range, a tighter `level`/`service` match)
+rather than relying solely on raising the setting.
+
+Multiple sort keys (`sort -status,service` / `"sort": ["-status", "service"]`)
+break ties left-to-right; a document missing a given sort field always sorts
+after every document that has it, in both ascending and descending order.
 
 Known, deliberate limitations for 1.0:
 
-- **`sort` reorders a page, not the whole index.** Both `| sort` and the
-  DSL's `sort` execute the normal relevance search first (bounded by `size`/
-  `limit`), then reorder just that page by the requested field(s). This is
-  *not* Elasticsearch's real behaviour, where sort determines which documents
-  make the page in the first place. For "the 20 most recent errors" out of a
-  much larger match set, narrow with a filter first (a `@timestamp` range, a
-  tighter `level`/`service` match) rather than requesting a huge `size` and
-  trusting `sort` to find the right page — the larger the gap between "total
-  matches" and "size requested," the more likely `sort` here disagrees with
-  a true index-wide sort.
 - **A `text`/`keyword` prefix on `text` fields only uses the first analyzed
   token.**
 - **Field resolution against an unmapped field never errors** (see the table
