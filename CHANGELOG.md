@@ -152,6 +152,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by `tests/integration/test_plugin_discovery.py` to exercise entry-point
   discovery against a genuinely installed package.
 - `docs/ARCHITECTURE.md` and `docs/PLUGINS.md`.
+- **Resilient log ingestion** (`scopiengine.ingest`): a streaming pipeline —
+  `ChunkedByteReader` (fixed-size chunked reads, never materialises the
+  source; a multi-byte character split across a chunk boundary always
+  decodes correctly; an over-long line is truncated, not unbounded) ->
+  `RecordAssembler` (one line = one record by default, `--multiline-start
+  REGEX` folds continuation lines; a still-open multiline group is never
+  handed back until a new record starts or the source is confirmed
+  exhausted, so a crash mid-stack-trace resumes at a record boundary, never
+  mid-record) -> a bounded `queue.Queue(maxsize=queue_size)` (the entire
+  backpressure mechanism — peak memory has a hard ceiling independent of
+  file size) -> the processor chain -> `Batcher` (flush on `batch_size`,
+  `batch_bytes` or `flush_interval`, whichever fires first).
+- **The single-transaction guarantee**: a batch's checkpoint update is issued
+  inside the same backend transaction as its segment and document writes,
+  made structural (not merely intended) by every storage backend's
+  `transaction()` being reentrant on one connection — `IngestPipeline._flush`
+  wraps `engine.index_documents` + `engine.flush` + `storage.save_checkpoint`
+  in one `with storage.transaction():` block, so a crash at any point leaves
+  the backend in exactly one of two states, never a third. Verified with a
+  genuine `SIGKILL` mid-run in a real subprocess
+  (`tests/integration/test_ingest_crash_resume.py`): resumed document count
+  and id set are identical to an uninterrupted run.
+- `scopiengine.ingest.checkpoint`: `cp_key = blake2b(index|abspath)[:16]`,
+  `source_sig = f"{st_dev}:{st_ino}:{sha1(first 4 KiB)}"`, and the pure
+  resume/rotation decision matrix (`decide_resume`, `classify_change`) that
+  tells "resume", "truncated in place" (copytruncate) and "rotated or
+  replaced" apart — the last two handled distinctly, including draining an
+  already-open, rotated-out file handle to EOF before switching to the new
+  file so its tail is never lost.
+- `Engine.flush`/`IndexManager.flush`: a segment flush without the
+  `refresh`/auto-merge check `refresh` also does — split out so ingestion's
+  per-batch flush stays O(batches) instead of O(batches²) (a merge rewrites
+  every live segment each time it fires); segments simply accumulate during
+  a run, and `scopi index merge`/`refresh` afterward folds them back down.
+- Three built-in `ingest_processor`s (`scopiengine.plugins.builtin.processors`,
+  registered through the same hook a third-party plugin uses): `json_line`
+  (non-JSON lines fall back to a raw `message` field rather than being
+  dropped), `regex_extract` (named groups become fields, via
+  `--regex-pattern`/the REST body's `regex_pattern`), `timestamp` (parses
+  epoch seconds/milliseconds, ISO-8601, RFC 2822, Apache/nginx combined log
+  format and classic syslog into an ISO-8601 `@timestamp`, narrowest-match-first
+  so the common single-token cases resolve on the first, cheapest attempt).
+- `scopi ingest file|status|reset` and `POST /_ingest/file`,
+  `GET /_ingest/jobs[/{id}]`, `DELETE /_ingest/jobs/{id}` (background jobs,
+  `scopiengine.ingest.jobs.IngestJobManager`). `--follow` tails a growing
+  file; `Ctrl-C`/`SIGTERM` (CLI) or the `DELETE` endpoint (REST) trigger a
+  clean stop — drain the queue, flush the current batch and checkpoint, exit
+  `0` — so a stop is always cleanly resumable, never a lossy abort.
+- `docs/INGEST.md`: the pipeline, the single-transaction guarantee,
+  checkpoint/resume/rotation semantics, `--id-mode`, tuning, honest
+  throughput numbers and a troubleshooting section.
 
 ## [1.0.0] - unreleased
 

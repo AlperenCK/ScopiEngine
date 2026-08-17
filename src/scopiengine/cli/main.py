@@ -132,6 +132,7 @@ def _register_commands() -> None:
     from scopiengine.cli.commands.doc_cmd import app as doc_app
     from scopiengine.cli.commands.doc_cmd import bulk
     from scopiengine.cli.commands.index_cmd import app as index_app
+    from scopiengine.cli.commands.ingest_cmd import app as ingest_app
     from scopiengine.cli.commands.plugin_cmd import app as plugin_app
     from scopiengine.cli.commands.search_cmd import analyze, search
     from scopiengine.cli.commands.serve_cmd import serve
@@ -140,6 +141,7 @@ def _register_commands() -> None:
     app.add_typer(storage_app, name="storage")
     app.add_typer(index_app, name="index")
     app.add_typer(doc_app, name="doc")
+    app.add_typer(ingest_app, name="ingest")
     app.add_typer(plugin_app, name="plugin")
     app.command("bulk", help="Bulk-index documents from an NDJSON file.")(bulk)
     app.command("search", help="Search an index with ScopiQL or a JSON DSL body.")(search)

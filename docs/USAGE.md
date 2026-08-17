@@ -48,7 +48,7 @@ where that layer is explained:
 | `scopi index` | Create, list, inspect, refresh, merge and delete indices | [index lifecycle](#scopi-index) below, [ARCHITECTURE.md](ARCHITECTURE.md) |
 | `scopi doc` / `scopi bulk` | Write and read documents | [documents](#scopi-doc-and-scopi-bulk) below |
 | `scopi search` / `scopi analyze` | Query with ScopiQL or the JSON DSL | [search and analyze](#scopi-search-and-scopi-analyze) below, [QUERY_LANGUAGE.md](QUERY_LANGUAGE.md) |
-| `scopi ingest` | Stream large log files in, with resume | [INGEST.md](INGEST.md) — arrives with log ingestion |
+| `scopi ingest` | Stream large log files in, with resume | [ingest](#scopi-ingest) below, [INGEST.md](INGEST.md) |
 | `scopi plugin` | Inspect discovered plugins | [plugins](#scopi-plugin) below, [PLUGINS.md](PLUGINS.md) |
 | `scopi serve` | Run the REST API | [the REST API](#the-rest-api) below |
 
@@ -113,6 +113,29 @@ scopi analyze --analyzer standard "Quick BROWN Fox"
 parsing a ScopiQL string — pass one or the other, not both. See
 [QUERY_LANGUAGE.md](QUERY_LANGUAGE.md) for the full grammar, the DSL
 compatibility matrix, and what `--explain`'s AST dump actually shows.
+
+## `scopi ingest`
+
+```bash
+scopi index create logs
+scopi ingest file /var/log/app.log --index logs --processor json_line
+scopi ingest file /var/log/app.log --index logs --follow      # tail, survives rotation
+
+# kill -9 (or Ctrl-C) at any point, then:
+scopi ingest file /var/log/app.log --index logs --resume      # picks up exactly where it stopped
+
+scopi ingest status                 # every checkpoint, newest first
+scopi ingest reset <cp_key>          # delete one - its next run starts at byte 0
+```
+
+Streams a file in fixed-size chunks (never materialising it), checkpoints its
+byte offset in the same storage transaction as the documents and segment it
+just wrote, and resumes from exactly that offset after any interruption —
+including a hard `kill -9`. `--follow` keeps polling for appended data and
+survives log rotation (rename-then-recreate and truncate-in-place are handled
+distinctly). See [INGEST.md](INGEST.md) for the full pipeline, the
+single-transaction guarantee, checkpoint/rotation semantics, `--id-mode`,
+tuning and honest throughput numbers.
 
 ## `scopi plugin`
 
@@ -199,7 +222,11 @@ Server profile (`docker compose --profile mssql up`) — see
 | `0` | Success |
 | `1` | A ScopiEngine error — the message names the error type |
 | `2` | Bad command-line usage |
-| `130` | Interrupted with Ctrl-C |
+| `130` | Interrupted with Ctrl-C (every command except `scopi ingest file`) |
 
-Ingestion treats `130` as a clean stop: the current batch and its checkpoint are
-flushed before exit, so `--resume` continues exactly where it left off.
+`scopi ingest file` is the one deliberate exception: it installs its own
+`SIGINT`/`SIGTERM` handlers, so Ctrl-C (or `kill`, not `kill -9`) triggers a
+clean stop rather than the usual `130` abort — the reader stops, the queue
+drains, the in-flight batch and its checkpoint flush as one transaction, and
+the process exits **`0`**, so `--resume` continues exactly where it left off.
+See [INGEST.md](INGEST.md).

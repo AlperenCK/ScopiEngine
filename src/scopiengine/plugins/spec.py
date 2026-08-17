@@ -24,9 +24,10 @@ __all__ = [
 ]
 
 #: ``process(doc, ctx) -> dict | None``. Returns the (possibly rewritten)
-#: document, or ``None`` to drop it from ingestion entirely. PR 5 supplies the
-#: real processors (grok/regex extraction, field renames, drops); this hook only
-#: fixes the contract they will implement against.
+#: document, or ``None`` to drop it from ingestion entirely. The built-in
+#: processors (``scopiengine.plugins.builtin.processors``: ``json_line``,
+#: ``regex_extract``, ``timestamp``) and ``scopiengine.ingest.pipeline`` are
+#: what actually calls into this contract during a real ingest run.
 IngestContext = dict[str, Any]
 IngestProcessor = Callable[[dict[str, Any], IngestContext], "dict[str, Any] | None"]
 

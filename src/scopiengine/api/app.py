@@ -37,7 +37,9 @@ from fastapi.responses import JSONResponse
 
 from scopiengine import TAGLINE, __version__
 from scopiengine.engine import Engine
-from scopiengine.errors import InvalidQueryError, ScopiError, UnsupportedFeatureError
+from scopiengine.errors import IngestError, InvalidQueryError, ScopiError, UnsupportedFeatureError
+from scopiengine.ingest.jobs import IngestJobManager
+from scopiengine.ingest.pipeline import IngestOptions
 from scopiengine.plugins.registry import PluginLoadResult
 from scopiengine.query.results import run_dsl, run_scopiql
 from scopiengine.settings import Settings
@@ -68,6 +70,14 @@ def _not_found(kind: str, index: str, doc_id: str) -> JSONResponse:
     return JSONResponse(
         status_code=404,
         content={"error": {"type": f"{kind}_not_found", "reason": reason}, "status": 404},
+    )
+
+
+def _job_not_found(job_id: str) -> JSONResponse:
+    reason = f"no ingest job found for id {job_id!r}"
+    return JSONResponse(
+        status_code=404,
+        content={"error": {"type": "ingest_job_not_found", "reason": reason}, "status": 404},
     )
 
 
@@ -190,6 +200,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         opened = Engine.open(resolved_settings)
         app.state.engine = opened
+        app.state.ingest_jobs = IngestJobManager(opened)
         try:
             yield
         finally:
@@ -385,5 +396,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise InvalidQueryError("'analyzer' must be a string")
         tokens = engine().analyze(text, analyzer=analyzer_name)
         return {"tokens": [{"token": term, "position": position} for term, position in tokens]}
+
+    # -- ingestion -------------------------------------------------------------
+
+    def ingest_jobs() -> IngestJobManager:
+        return app.state.ingest_jobs  # type: ignore[no-any-return]
+
+    @app.post("/_ingest/file")
+    def start_ingest(body: dict[str, Any] = Body(...)) -> JSONResponse:
+        path = body.get("path")
+        index = body.get("index")
+        if not isinstance(path, str) or not path:
+            raise IngestError("'path' is required and must be a string")
+        if not isinstance(index, str) or not index:
+            raise IngestError("'index' is required and must be a string")
+
+        from_mode = body.get("from")
+        if from_mode is None:
+            from_mode = "checkpoint" if body.get("resume") else "start"
+        if from_mode not in ("start", "end", "checkpoint"):
+            raise IngestError("'from' must be one of: start, end, checkpoint")
+        id_mode = body.get("id_mode", "offset")
+        if id_mode not in ("offset", "content", "uuid"):
+            raise IngestError("'id_mode' must be one of: offset, content, uuid")
+
+        options = IngestOptions(
+            index=index,
+            processors=tuple(body.get("processors") or ()),
+            multiline_start=body.get("multiline_start"),
+            follow=bool(body.get("follow", False)),
+            from_mode=from_mode,  # type: ignore[arg-type]
+            id_mode=id_mode,  # type: ignore[arg-type]
+            batch_size=body.get("batch_size"),
+            batch_bytes=body.get("batch_bytes"),
+            flush_interval=body.get("flush_interval"),
+            queue_size=body.get("queue_size"),
+            regex_pattern=body.get("regex_pattern"),
+        )
+        job = ingest_jobs().start(path=path, index=index, options=options)
+        return JSONResponse(status_code=202, content=job.to_dict())
+
+    @app.get("/_ingest/jobs")
+    def list_ingest_jobs() -> list[dict[str, Any]]:
+        return [job.to_dict() for job in ingest_jobs().list()]
+
+    @app.get("/_ingest/jobs/{job_id}")
+    def get_ingest_job(job_id: str) -> Response:
+        job = ingest_jobs().get(job_id)
+        if job is None:
+            return _job_not_found(job_id)
+        return JSONResponse(content=job.to_dict())
+
+    @app.delete("/_ingest/jobs/{job_id}")
+    def stop_ingest_job(job_id: str) -> Response:
+        job = ingest_jobs().stop(job_id)
+        if job is None:
+            return _job_not_found(job_id)
+        return JSONResponse(content=job.to_dict())
 
     return app

@@ -72,9 +72,14 @@ def my_processor(doc: dict, ctx: dict) -> dict | None:
     ...  # return the (possibly rewritten) document, or None to drop it
 ```
 
-Only the contract is fixed in this release — PR 5 supplies the real
-processors (grok/regex field extraction, renames, drops) and the ingest
-pipeline that actually calls into `Engine.plugins.ingest_processors`.
+`doc` starts as `{"message": <record text>}`; each configured processor runs
+in order (`--processor NAME`, repeatable), threading its return value into
+the next. The built-ins (`json_line`, `regex_extract`, `timestamp` —
+`scopiengine.plugins.builtin.processors`) register through this exact hook,
+and `scopiengine.ingest.pipeline.IngestPipeline` resolves `--processor` names
+against `Engine.plugins.ingest_processors` the same way for a first-party or
+a third-party module alike. See `docs/INGEST.md` for the full ingestion
+pipeline this hook feeds into.
 
 ### `storage_backend`
 
