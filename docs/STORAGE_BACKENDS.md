@@ -215,9 +215,20 @@ can share a database with other applications.
 | `INSERT ... ON CONFLICT DO UPDATE` | `MERGE` | Upsert semantics — used for checkpoints and document upserts; segment writes are pure `INSERT`, since segments are immutable once written. |
 | — | `WITH (DATA_COMPRESSION = PAGE)` on `terms` and `documents` | Both tables are dominated by large, repetitive blob/text payloads that compress well. |
 
-`migrate()` also sets `READ_COMMITTED_SNAPSHOT ON` for the database (once, if
-not already set), so readers use row versioning instead of taking locks —
-search never blocks behind an in-progress ingest.
+#### Snapshot isolation is recommended, and is yours to enable
+
+With `READ_COMMITTED_SNAPSHOT ON`, readers use row versioning instead of taking
+locks, so a search never blocks behind an in-progress ingest. It is worth having,
+and ScopiEngine will log a warning while it is off.
+
+ScopiEngine will not turn it on for you. The statement needs exclusive access to
+the database, which disconnects every other session and takes the database briefly
+offline — far too disruptive to happen as a side effect of opening a connection on
+a shared server. Run it yourself, once, at a moment you choose:
+
+```sql
+ALTER DATABASE [scopi] SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;
+```
 
 ### Setup
 

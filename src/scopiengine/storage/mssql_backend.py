@@ -221,18 +221,24 @@ class MSSQLBackend(StorageBackend):
                 " VALUES (source.[key], source.[value]);",
                 (__version__,),
             )
-        # ALTER DATABASE is rejected inside a multi-statement transaction, so read
-        # committed snapshot isolation is enabled after the schema transaction has
-        # committed, never within it.
-        self._enable_snapshot_isolation()
+        self._warn_if_snapshot_isolation_is_off()
 
-    def _enable_snapshot_isolation(self) -> None:
-        """Turn on read committed snapshot isolation so search never blocks ingestion.
+    def snapshot_isolation_statement(self) -> str:
+        """The statement a database owner runs to let search read past ingestion."""
+        return (
+            f"ALTER DATABASE [{self._config.database}] "
+            "SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE"
+        )
 
-        This is a concurrency optimisation rather than a correctness requirement, and
-        it needs a privilege a managed or shared instance may withhold. A refusal is
-        therefore reported as a warning naming the statement to run by hand, instead
-        of failing an otherwise successful migration.
+    def _warn_if_snapshot_isolation_is_off(self) -> None:
+        """Report, but never change, the database's snapshot isolation setting.
+
+        Read committed snapshot isolation is what stops a search blocking behind an
+        ingestion batch, so it is worth having. Turning it on is deliberately left to
+        the database owner: the statement needs ``WITH ROLLBACK IMMEDIATE`` to acquire
+        exclusive access, which disconnects every other session and takes the database
+        briefly offline. Doing that as a side effect of opening a connection would let
+        one ``scopi`` invocation interrupt every other user of a shared server.
         """
         conn = self._require_conn()
         snapshot = conn.execute(
@@ -240,20 +246,12 @@ class MSSQLBackend(StorageBackend):
         ).fetchone()
         if snapshot is None or snapshot[0]:
             return
-        statement = (
-            f"ALTER DATABASE [{self._config.database}] "
-            "SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE"
+        _log.warning(
+            "read committed snapshot isolation is off for database %s, so searches may "
+            "block behind ingestion. A database owner can enable it with: %s",
+            self._config.database,
+            self.snapshot_isolation_statement(),
         )
-        try:
-            conn.execute(statement)
-        except Exception as exc:  # the driver's error type varies by ODBC version
-            _log.warning(
-                "could not enable read committed snapshot isolation on %s: %s. "
-                "Searches may block behind ingestion until it is enabled with: %s",
-                self._config.database,
-                exc,
-                statement,
-            )
 
     @contextmanager
     def transaction(self) -> Generator[None, None, None]:
