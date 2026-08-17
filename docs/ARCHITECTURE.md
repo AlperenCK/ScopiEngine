@@ -236,9 +236,9 @@ more than one storage round trip.
 - **Query parsers** (ScopiQL, JSON-DSL): PR 4. Only the AST exists so far.
 - **Stemming**: ships as the reference plugin in 1.1 — the whole reason
   `AnalyzerRegistry` is a mutable registry rather than a fixed enum.
-- **Real ingest processors**: the `ingest_processor` plugin hook is defined
-  (`process(doc, ctx) -> dict | None`) but nothing implements it yet; PR 5
-  supplies the real ones (grok/regex extraction, field renames, drops).
+- **Remote ingest sources**: `scopiengine.ingest.sources.Source` is a narrow
+  protocol (`open`/`stat`) with `LocalFileSource` as the only implementation;
+  SFTP/SSH/syslog/S3 sources are the seam this leaves for 1.1, not built here.
 - **A dedicated exists/field-cardinality index**: `Exists` works by unioning
   every term in a field, which does not scale to very high-cardinality fields.
 - **Per-field `store`**: `FieldMapping.store` is a recognised setting but does

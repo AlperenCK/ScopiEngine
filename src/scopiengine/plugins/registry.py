@@ -38,6 +38,7 @@ _logger = logging.getLogger("scopiengine.plugins")
 _BUILTIN_MODULES: tuple[str, ...] = (
     "scopiengine.plugins.builtin.analyzers",
     "scopiengine.plugins.builtin.storage",
+    "scopiengine.plugins.builtin.processors",
 )
 
 #: The ``importlib.metadata`` entry-point group third-party plugins register under.

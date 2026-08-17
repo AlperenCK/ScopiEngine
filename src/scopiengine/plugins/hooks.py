@@ -3,8 +3,9 @@
 1. ``analyzer`` — a plugin module defines ``register_analyzers(registry)`` to add
    tokenizers, filters and named analyzers.
 2. ``ingest_processor`` — a plugin module defines ``register_ingest_processors()``
-   returning ``{name: IngestProcessor}``. PR 5 supplies the real processors; this
-   hook only fixes the contract.
+   returning ``{name: IngestProcessor}``. ``scopiengine.plugins.builtin.processors``
+   supplies the built-ins (``json_line``, ``regex_extract``, ``timestamp``); see
+   ``docs/INGEST.md`` for the pipeline that calls into them.
 3. ``storage_backend`` — a plugin module defines ``register_storage_backends(register)``,
    calling the given ``register`` (which *is*
    :func:`scopiengine.storage.factory.register_backend`) for each DSN scheme it adds.

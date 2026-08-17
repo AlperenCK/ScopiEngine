@@ -129,6 +129,10 @@ class Engine:
 
     # -- refresh, merge and search -----------------------------------------
 
+    def flush(self, index: str) -> int | None:
+        """See :meth:`scopiengine.index.manager.IndexManager.flush`."""
+        return self.manager.flush(index)
+
     def refresh(self, index: str) -> int | None:
         """See :meth:`scopiengine.index.manager.IndexManager.refresh`."""
         return self.manager.refresh(index)

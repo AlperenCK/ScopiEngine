@@ -216,6 +216,27 @@ class IndexManager:
 
     # -- refresh and merge -----------------------------------------------------
 
+    def flush(self, name: str) -> int | None:
+        """Flush the pending write buffer to a new segment, without checking auto-merge.
+
+        This is what :meth:`refresh` does its first half of — split out because a
+        caller that flushes very frequently on its own schedule (streaming
+        ingestion, batch by batch) needs each document batch to become a
+        durable segment without also paying to re-check (and potentially
+        trigger) a full-index merge on every single batch, which would turn
+        an O(batches) ingest into an O(batches²) one. Segments simply
+        accumulate; a search still sees every one of them, just as more of
+        them as separate segments rather than fewer, merged ones, until
+        something calls :meth:`refresh` or :meth:`force_merge`.
+
+        Returns:
+            The newly flushed segment's id, or ``None`` when nothing was buffered.
+
+        Raises:
+            IndexNotFoundError: No index named ``name`` exists.
+        """
+        return self._writer(name).flush()
+
     def refresh(self, name: str) -> int | None:
         """Flush the pending write buffer to a new segment, then auto-merge if needed.
 
@@ -225,7 +246,7 @@ class IndexManager:
         Raises:
             IndexNotFoundError: No index named ``name`` exists.
         """
-        segment_id = self._writer(name).flush()
+        segment_id = self.flush(name)
         if should_auto_merge(self.storage, name, max_segments=self.max_segments):
             _merge_segments(self.storage, name, self._mapping(name))
         return segment_id
