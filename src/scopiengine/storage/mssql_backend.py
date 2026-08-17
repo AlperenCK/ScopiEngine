@@ -21,6 +21,7 @@ from scopiengine.errors import (
     IndexNotFoundError,
     StorageError,
 )
+from scopiengine.logging_conf import get_logger
 from scopiengine.storage.base import SegmentTermEntry, StorageBackend
 from scopiengine.storage.models import (
     Checkpoint,
@@ -34,6 +35,8 @@ from scopiengine.storage.models import (
 from scopiengine.storage.mssql_ddl import MIGRATION_STATEMENTS, SCHEMA, SCHEMA_VERSION
 
 __all__ = ["MSSQLBackend", "MSSQLConfig"]
+
+_log = get_logger(__name__)
 
 #: Rows per ``executemany`` batch when writing a segment's postings.
 _WRITE_CHUNK_SIZE = 1000
@@ -218,14 +221,39 @@ class MSSQLBackend(StorageBackend):
                 " VALUES (source.[key], source.[value]);",
                 (__version__,),
             )
-            snapshot = conn.execute(
-                "SELECT is_read_committed_snapshot_on FROM sys.databases WHERE name = DB_NAME()"
-            ).fetchone()
-            if snapshot is not None and not snapshot[0]:
-                conn.execute(
-                    f"ALTER DATABASE [{self._config.database}] SET READ_COMMITTED_SNAPSHOT ON "
-                    "WITH ROLLBACK IMMEDIATE"
-                )
+        # ALTER DATABASE is rejected inside a multi-statement transaction, so read
+        # committed snapshot isolation is enabled after the schema transaction has
+        # committed, never within it.
+        self._enable_snapshot_isolation()
+
+    def _enable_snapshot_isolation(self) -> None:
+        """Turn on read committed snapshot isolation so search never blocks ingestion.
+
+        This is a concurrency optimisation rather than a correctness requirement, and
+        it needs a privilege a managed or shared instance may withhold. A refusal is
+        therefore reported as a warning naming the statement to run by hand, instead
+        of failing an otherwise successful migration.
+        """
+        conn = self._require_conn()
+        snapshot = conn.execute(
+            "SELECT is_read_committed_snapshot_on FROM sys.databases WHERE name = DB_NAME()"
+        ).fetchone()
+        if snapshot is None or snapshot[0]:
+            return
+        statement = (
+            f"ALTER DATABASE [{self._config.database}] "
+            "SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE"
+        )
+        try:
+            conn.execute(statement)
+        except Exception as exc:  # the driver's error type varies by ODBC version
+            _log.warning(
+                "could not enable read committed snapshot isolation on %s: %s. "
+                "Searches may block behind ingestion until it is enabled with: %s",
+                self._config.database,
+                exc,
+                statement,
+            )
 
     @contextmanager
     def transaction(self) -> Generator[None, None, None]:

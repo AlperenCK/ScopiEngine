@@ -88,10 +88,24 @@ jobs:
           sqlcmd -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "IF DB_ID('scopi') IS NULL CREATE DATABASE scopi"
         env:
           MSSQL_SA_PASSWORD: "ScopiTest_2026Pw"
-      - name: Pytest (mssql)
-        run: pytest -m mssql
+      - name: Smoke test the connection
+        run: scopi -s "$SCOPI_TEST_MSSQL_DSN" storage init && scopi -s "$SCOPI_TEST_MSSQL_DSN" storage info
         env:
           SCOPI_TEST_MSSQL_DSN: "mssql://sa:ScopiTest_2026Pw@localhost:1433/scopi?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+      - name: Pytest (mssql)
+        # shell: bash runs with -eo pipefail, so a failing pytest is not masked by tee.
+        shell: bash
+        run: pytest -m mssql --tb=short -q | tee pytest-mssql.log
+        env:
+          SCOPI_TEST_MSSQL_DSN: "mssql://sa:ScopiTest_2026Pw@localhost:1433/scopi?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+      - name: Failure summary
+        # The service container dumps its whole error log at teardown, which buries
+        # the test output. Repeat the failures here so they stay findable.
+        if: failure()
+        run: |
+          echo "===== SCOPI MSSQL FAILURES ====="
+          tail -n 60 pytest-mssql.log || echo "no pytest log was produced"
+          echo "===== END SCOPI MSSQL FAILURES ====="
 
   build:
     name: Build distributions
