@@ -25,9 +25,24 @@ _BACKEND_PARAMS = [
 ]
 
 
+def reset_backend(backend: StorageBackend) -> None:
+    """Return a migrated backend to the state a freshly created one would be in.
+
+    SQLite gets a brand new file per test, but a server-backed backend shares one
+    database across the whole suite, so it has to be emptied explicitly. Without
+    this a test asserting on ``list_indices()`` sees the previous test's leftovers,
+    and re-creating a fixture index raises
+    :class:`~scopiengine.errors.IndexAlreadyExistsError`.
+    """
+    for info in backend.list_indices():
+        backend.delete_index(info.name)
+    for checkpoint in backend.list_checkpoints():
+        backend.delete_checkpoint(checkpoint.cp_key)
+
+
 @pytest.fixture(params=_BACKEND_PARAMS)
 def backend(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[StorageBackend]:
-    """A migrated, open backend of each kind under test."""
+    """A migrated, open and empty backend of each kind under test."""
     kind = request.param
     if kind == "mssql":
         dsn = os.environ.get("SCOPI_TEST_MSSQL_DSN")
@@ -37,7 +52,13 @@ def backend(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[StorageB
         dsn = f"sqlite:///{tmp_path / 'scopi.db'}"
     with open_storage(dsn) as opened:
         opened.migrate()
-        yield opened
+        # Empty on the way in as well as out, so a test that fails midway cannot
+        # poison the one after it.
+        reset_backend(opened)
+        try:
+            yield opened
+        finally:
+            reset_backend(opened)
 
 
 def _create_index(backend: StorageBackend, name: str = "logs") -> None:
@@ -405,3 +426,34 @@ def test_index_stats_on_an_empty_index(backend: StorageBackend) -> None:
     assert stats["doc_count"] == 0
     assert stats["segment_count"] == 0
     assert stats["deleted_count"] == 0
+
+
+# -- shared-database isolation ---------------------------------------------------
+
+
+def test_reset_empties_a_shared_database(tmp_path: Path) -> None:
+    """The fixture's reset must fully empty a database that outlives one test.
+
+    SQLite stands in for the server-backed case here: the same file is reopened
+    rather than recreated, which is exactly how MS SQL Server sees the suite. If
+    this ever regresses, every shared-database run fails on the second test.
+    """
+    dsn = f"sqlite:///{tmp_path / 'shared.db'}"
+
+    with open_storage(dsn) as first:
+        first.migrate()
+        _create_index(first, "logs")
+        _create_index(first, "metrics")
+        first.save_checkpoint(_checkpoint("cp-1"))
+        assert len(first.list_indices()) == 2
+        assert len(first.list_checkpoints()) == 1
+        reset_backend(first)
+
+    with open_storage(dsn) as second:
+        second.migrate()
+        assert second.list_indices() == []
+        assert second.list_checkpoints() == []
+        # An index name reused after the reset must not collide.
+        _create_index(second, "logs")
+        assert [info.name for info in second.list_indices()] == ["logs"]
+        reset_backend(second)
