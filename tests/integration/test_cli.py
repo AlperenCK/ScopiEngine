@@ -83,3 +83,26 @@ def test_bad_setting_reports_the_variable(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("SCOPI_PORT", "not-a-port")
     result = runner.invoke(app, ["info"])
     assert result.exit_code != 0
+
+
+def test_storage_init_creates_the_schema(storage_dsn: str) -> None:
+    result = runner.invoke(app, ["--storage", storage_dsn, "--json", "storage", "init"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["storage"] == storage_dsn
+    assert payload["schema_version"] >= 1
+
+
+def test_storage_info_reports_reachability(storage_dsn: str) -> None:
+    result = runner.invoke(app, ["--storage", storage_dsn, "--json", "storage", "info"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["scheme"] == "sqlite"
+    assert payload["reachable"] is True
+
+
+def test_storage_migrate_is_idempotent(storage_dsn: str) -> None:
+    first = runner.invoke(app, ["--storage", storage_dsn, "storage", "migrate"])
+    second = runner.invoke(app, ["--storage", storage_dsn, "storage", "migrate"])
+    assert first.exit_code == 0
+    assert second.exit_code == 0

@@ -129,7 +129,9 @@ def info(ctx: typer.Context) -> None:
 
 def _register_commands() -> None:
     """Attach optional command groups, skipping any not present in this build."""
-    return
+    from scopiengine.cli.commands.storage_cmd import app as storage_app
+
+    app.add_typer(storage_app, name="storage")
 
 
 _register_commands()

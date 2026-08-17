@@ -50,6 +50,49 @@ jobs:
       - name: Pytest
         run: pytest -m "not slow and not mssql" --cov --cov-report=term-missing
 
+  mssql:
+    name: Tests (MS SQL Server)
+    runs-on: ubuntu-latest
+    continue-on-error: false
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "ScopiTest_2026Pw"
+          MSSQL_PID: "Developer"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P ScopiTest_2026Pw -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install Microsoft ODBC driver
+        run: |
+          curl -sSL -O https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          sudo apt-get update
+          ACCEPT_EULA=Y sudo apt-get install -y msodbcsql18 unixodbc-dev mssql-tools18
+          echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
+      - name: Install
+        run: pip install -e ".[dev,mssql]"
+      - name: Create test database
+        run: |
+          sqlcmd -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "IF DB_ID('scopi') IS NULL CREATE DATABASE scopi"
+        env:
+          MSSQL_SA_PASSWORD: "ScopiTest_2026Pw"
+      - name: Pytest (mssql)
+        run: pytest -m mssql
+        env:
+          SCOPI_TEST_MSSQL_DSN: "mssql://sa:ScopiTest_2026Pw@localhost:1433/scopi?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+
   build:
     name: Build distributions
     runs-on: ubuntu-latest
