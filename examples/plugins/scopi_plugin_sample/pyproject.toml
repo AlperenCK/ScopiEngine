@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "scopi-plugin-sample"
+version = "1.0.0"
+description = "Worked example ScopiEngine plugin: a custom analyzer and a dummy storage scheme"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Alperen CK", email = "alprncck17@gmail.com" }]
+dependencies = ["scopiengine"]
+
+[project.entry-points."scopiengine.plugins"]
+scopi_plugin_sample = "scopi_plugin_sample.plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scopi_plugin_sample"]

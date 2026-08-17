@@ -47,8 +47,25 @@ jobs:
           cache: pip
       - name: Install
         run: pip install -e ".[dev]"
+      - name: Install the sample plugin
+        # The plugin discovery tests skip when this is absent, so without it CI
+        # would report green while never exercising entry-point discovery at all.
+        run: pip install -e examples/plugins/scopi_plugin_sample
       - name: Pytest
         run: pytest -m "not slow and not mssql" --cov --cov-report=term-missing
+      - name: Assert plugin discovery actually ran
+        # These tests skip themselves when the sample plugin is missing, which would
+        # look identical to passing. Fail loudly if they ever go quiet.
+        shell: bash
+        run: |
+          output=$(pytest -q tests/integration/test_plugin_discovery.py)
+          echo "$output"
+          case "$output" in
+            *skipped*|*"no tests ran"*)
+              echo "::error::plugin discovery tests did not run"
+              exit 1
+              ;;
+          esac
 
   mssql:
     name: Tests (MS SQL Server)
