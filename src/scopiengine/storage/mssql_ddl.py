@@ -11,7 +11,7 @@ deltas, and why each one exists:
   key at 900 bytes, and ``NVARCHAR`` is 2 bytes per character, so 450 is the most
   room a term can have while still fitting.
 - ``postings``/``source``/``norms`` are ``VARBINARY(MAX)``; JSON columns are
-  ``NVARCHAR(MAX)``; timestamps are ``DATETIME2(3)``.
+  ``NVARCHAR(MAX)``; timestamps are ISO-8601 ``NVARCHAR(32)``, so they round-trip verbatim.
 - ``terms`` and ``documents`` carry ``WITH (DATA_COMPRESSION = PAGE)`` — both are
   dominated by large, repetitive blob and text payloads that compress well.
 """
@@ -48,7 +48,7 @@ MIGRATION_STATEMENTS: tuple[str, ...] = (
         doc_count     INT NOT NULL DEFAULT 0,
         next_ord      INT NOT NULL DEFAULT 0,
         next_segment  INT NOT NULL DEFAULT 0,
-        created_at    DATETIME2(3) NOT NULL,
+        created_at    NVARCHAR(32)  NOT NULL,
         CONSTRAINT ux_indices_name UNIQUE (name)
     )
     """,
@@ -81,7 +81,7 @@ MIGRATION_STATEMENTS: tuple[str, ...] = (
         base_ord   INT NOT NULL,
         doc_count  INT NOT NULL,
         state      INT NOT NULL DEFAULT 1,
-        created_at DATETIME2(3) NOT NULL,
+        created_at NVARCHAR(32) NOT NULL,
         CONSTRAINT pk_segments PRIMARY KEY CLUSTERED (index_id, segment_id)
     )
     """,
@@ -130,8 +130,8 @@ MIGRATION_STATEMENTS: tuple[str, ...] = (
         record_count  BIGINT NOT NULL DEFAULT 0,
         state         NVARCHAR(50) NOT NULL,
         error         NVARCHAR(MAX) NULL,
-        started_at    DATETIME2(3) NOT NULL,
-        updated_at    DATETIME2(3) NOT NULL
+        started_at    NVARCHAR(32)  NOT NULL,
+        updated_at    NVARCHAR(32)  NOT NULL
     )
     """,
 )

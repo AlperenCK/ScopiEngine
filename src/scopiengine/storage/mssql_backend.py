@@ -214,7 +214,8 @@ class MSSQLBackend(StorageBackend):
                     )
             conn.execute(
                 f"MERGE {SCHEMA}.meta AS target "
-                "USING (SELECT 'engine_version' AS [key], ? AS [value]) AS source "
+                "USING (SELECT 'engine_version' AS [key],"
+                " CAST(? AS NVARCHAR(MAX)) AS [value]) AS source "
                 "ON target.[key] = source.[key] "
                 "WHEN MATCHED THEN UPDATE SET target.[value] = source.[value] "
                 "WHEN NOT MATCHED THEN INSERT ([key], [value])"
@@ -436,7 +437,12 @@ class MSSQLBackend(StorageBackend):
             cursor = self._cursor()
             cursor.executemany(
                 f"MERGE {SCHEMA}.documents AS target "
-                "USING (SELECT ? AS index_id, ? AS doc_ord, ? AS doc_id, ? AS source) AS source "
+                # A bare parameter in the USING subquery carries no type, so SQL Server
+                # infers varchar and then refuses to convert it to the column's type.
+                # Every parameter is cast to the column type it lands in.
+                "USING (SELECT CAST(? AS INT) AS index_id, CAST(? AS INT) AS doc_ord, "
+                "CAST(? AS NVARCHAR(450)) AS doc_id, "
+                "CAST(? AS VARBINARY(MAX)) AS source) AS source "
                 "ON target.index_id = source.index_id AND target.doc_ord = source.doc_ord "
                 "WHEN MATCHED THEN UPDATE SET doc_id = source.doc_id, source = source.source "
                 "WHEN NOT MATCHED THEN INSERT (index_id, doc_ord, doc_id, source) "
@@ -700,9 +706,17 @@ class MSSQLBackend(StorageBackend):
         with self.transaction():
             conn.execute(
                 f"MERGE {SCHEMA}.ingest_checkpoints AS target "
-                "USING (SELECT ? AS cp_key, ? AS index_name, ? AS source_uri, ? AS source_sig,"
-                " ? AS byte_offset, ? AS record_count, ? AS state, ? AS error,"
-                " ? AS started_at, ? AS updated_at) AS source "
+                # Cast every parameter to its column type: an untyped parameter in a
+                # USING subquery is inferred as varchar, which would silently mangle
+                # non-ASCII text on its way into an NVARCHAR column.
+                "USING (SELECT CAST(? AS NVARCHAR(450)) AS cp_key,"
+                " CAST(? AS NVARCHAR(450)) AS index_name,"
+                " CAST(? AS NVARCHAR(MAX)) AS source_uri,"
+                " CAST(? AS NVARCHAR(450)) AS source_sig,"
+                " CAST(? AS BIGINT) AS byte_offset, CAST(? AS BIGINT) AS record_count,"
+                " CAST(? AS NVARCHAR(50)) AS state, CAST(? AS NVARCHAR(MAX)) AS error,"
+                " CAST(? AS NVARCHAR(32)) AS started_at,"
+                " CAST(? AS NVARCHAR(32)) AS updated_at) AS source "
                 "ON target.cp_key = source.cp_key "
                 "WHEN MATCHED THEN UPDATE SET"
                 " index_name = source.index_name, source_uri = source.source_uri,"

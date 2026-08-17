@@ -211,7 +211,8 @@ can share a database with other applications.
 | `term TEXT` | `term NVARCHAR(450)` | SQL Server caps an index key at 900 bytes; `NVARCHAR` is 2 bytes/char, so 450 chars is the most room a term can have while still being indexable. |
 | `postings BLOB` | `postings VARBINARY(MAX)` | Unbounded binary payload. |
 | `mapping_json TEXT` | `mapping_json NVARCHAR(MAX)` | Unbounded JSON text. |
-| `created_at TEXT` (ISO-8601) | `created_at DATETIME2(3)` | Native timestamp, millisecond precision. |
+| `created_at TEXT` (ISO-8601) | `created_at NVARCHAR(32)` | Deliberately *not* `DATETIME2`. The engine's timestamps are opaque ISO-8601 provenance markers, and `DATETIME2` drops the UTC offset, so the same checkpoint read back through two backends would not be the same string. Text keeps every backend byte-identical, which is the point of the conformance suite. |
+| *(untyped parameter)* | `CAST(? AS ...)` in every `MERGE ... USING` | A bare parameter in a `USING` subquery has no type context, so SQL Server infers `varchar` — which it then refuses to convert to `VARBINARY(MAX)`, and would silently mangle non-ASCII text bound for an `NVARCHAR` column. |
 | `INSERT ... ON CONFLICT DO UPDATE` | `MERGE` | Upsert semantics — used for checkpoints and document upserts; segment writes are pure `INSERT`, since segments are immutable once written. |
 | — | `WITH (DATA_COMPRESSION = PAGE)` on `terms` and `documents` | Both tables are dominated by large, repetitive blob/text payloads that compress well. |
 

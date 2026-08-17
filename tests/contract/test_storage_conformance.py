@@ -457,3 +457,73 @@ def test_reset_empties_a_shared_database(tmp_path: Path) -> None:
         _create_index(second, "logs")
         assert [info.name for info in second.list_indices()] == ["logs"]
         reset_backend(second)
+
+
+# -- cross-backend value fidelity ------------------------------------------------
+
+
+def test_timestamps_round_trip_verbatim(backend: StorageBackend) -> None:
+    """Every backend must return the exact timestamp string it was given.
+
+    A native timestamp column drops the UTC offset, so the same checkpoint would
+    read back differently depending on the backend. Storing them as text is what
+    keeps the backends interchangeable.
+    """
+    _create_index(backend, "logs")
+    stamp = "2026-01-01T00:00:00+00:00"
+    backend.save_checkpoint(_checkpoint("cp-stamp"))
+    reloaded = backend.load_checkpoint("cp-stamp")
+    assert reloaded is not None
+    assert reloaded.started_at == stamp
+    assert reloaded.updated_at == stamp
+
+    created = backend.get_index("logs").created_at
+    assert "T" in created, f"index created_at is not ISO-8601: {created!r}"
+
+
+# Characters no single-byte encoding can represent, including the dotless i that
+# linters flag as ambiguous. That ambiguity is the point: these values only survive
+# if the backend binds them as national character data all the way down.
+_NA_INDEX = "günlükler"
+_NA_DOC_ID = "kayıt-1"  # noqa: RUF001
+_NA_SOURCE = '{"mesaj": "bağlantı reddedildi"}'  # noqa: RUF001
+_NA_PATH = "/var/log/uygulamalar/günlük.log"
+_NA_CP_KEY = "cp-türkçe"
+
+
+def test_non_ascii_text_survives_the_round_trip(backend: StorageBackend) -> None:
+    """Text columns must not be narrowed to a single-byte encoding in transit.
+
+    Index names and log paths are routinely non-ASCII, and a parameter bound as
+    varchar rather than nvarchar corrupts them silently rather than failing.
+    """
+    from scopiengine.storage.models import StoredDoc
+
+    _create_index(backend, _NA_INDEX)
+    assert [info.name for info in backend.list_indices()] == [_NA_INDEX]
+
+    backend.put_documents(
+        _NA_INDEX,
+        [StoredDoc(doc_ord=0, doc_id=_NA_DOC_ID, source=_NA_SOURCE.encode())],
+    )
+    assert backend.resolve_ids(_NA_INDEX, [_NA_DOC_ID]) == {_NA_DOC_ID: 0}
+    assert backend.get_documents(_NA_INDEX, [0])[0].source.decode() == _NA_SOURCE
+
+    backend.save_checkpoint(
+        Checkpoint(
+            cp_key=_NA_CP_KEY,
+            index_name=_NA_INDEX,
+            source_uri=_NA_PATH,
+            source_sig="dev:1:abc",
+            byte_offset=0,
+            record_count=0,
+            state="running",
+            error=None,
+            started_at="2026-01-01T00:00:00+00:00",
+            updated_at="2026-01-01T00:00:00+00:00",
+        )
+    )
+    stored = backend.load_checkpoint(_NA_CP_KEY)
+    assert stored is not None
+    assert stored.source_uri == _NA_PATH
+    assert stored.index_name == _NA_INDEX
