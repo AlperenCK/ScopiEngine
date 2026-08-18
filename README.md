@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.svg" alt="ScopiEngine" width="420">
+  <img src="docs/assets/ScopiEngine-logo.png" alt="ScopiEngine" width="420">
 </p>
 
 <h1 align="center">ScopiEngine</h1>
@@ -15,6 +15,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3B5BFF.svg" alt="MIT"></a>
   <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12-00D4FF.svg" alt="Python 3.11 | 3.12">
   <img src="https://img.shields.io/badge/version-1.0.0-A855F7.svg" alt="Version 1.0.0">
+</p>
+
+<p align="center">
+  <img src="docs/assets/ScopiEngine-banner.png" alt="ScopiEngine — Search / Analyze / Discover" width="900">
 </p>
 
 ---
