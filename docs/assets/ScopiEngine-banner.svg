@@ -1,0 +1,53 @@
+<svg width="900" height="430" viewBox="0 0 900 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ScopiEngine — Search / Analyze / Discover">
+  <title>ScopiEngine — Search / Analyze / Discover</title>
+  <defs>
+    <linearGradient id="markTopBanner" x1="30" y1="150" x2="210" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1CC8F0"/>
+      <stop offset="0.55" stop-color="#2E8CF5"/>
+      <stop offset="1" stop-color="#3E63F7"/>
+    </linearGradient>
+    <linearGradient id="markBotBanner" x1="210" y1="90" x2="30" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3E5BF6"/>
+      <stop offset="0.5" stop-color="#7A5CF0"/>
+      <stop offset="1" stop-color="#B65CE8"/>
+    </linearGradient>
+    <radialGradient id="markPupilBanner" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#9FE8FF"/>
+      <stop offset="0.5" stop-color="#4C8CF5"/>
+      <stop offset="1" stop-color="#6B4FE0"/>
+    </radialGradient>
+
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="900" y2="430" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0A1128"/>
+      <stop offset="1" stop-color="#0D1730"/>
+    </linearGradient>
+  </defs>
+  <rect width="900" height="430" fill="url(#bgGrad)"/>
+
+  <g transform="translate(48,48) scale(0.62)">
+    <path fill="url(#markTopBanner)" d="M 78,150 C 55,150 34,132 32,106 C 30,78 52,54 82,44 C 118,30 150,22 176,20 C 195,15 218,28 216,50 C 210,66 175,80 138,96 C 118,106 108,124 108,140 C 108,148 100,152 92,150 Z"/>
+    <path fill="url(#markBotBanner)" d="M 162,90 C 185,90 206,108 208,134 C 210,162 188,186 158,196 C 122,210 90,218 64,220 C 45,225 22,212 24,190 C 30,174 65,160 102,144 C 122,134 132,116 132,100 C 132,92 140,88 148,90 Z"/>
+    <circle cx="120" cy="120" r="40" fill="url(#bgGrad)"/>
+    <circle cx="112" cy="112" r="16" fill="url(#markPupilBanner)"/>
+
+  </g>
+
+  <text x="222" y="120" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="70">
+    <tspan fill="#F5F7FF">Scopi</tspan><tspan fill="#4C8CF5">Engine</tspan>
+  </text>
+  <text x="224" y="160" font-family="Arial, Helvetica, sans-serif" font-size="20" letter-spacing="6" fill="#8FA3D6">SEARCH / ANALYZE / DISCOVER</text>
+
+  <text x="450" y="222" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="21" fill="#D7DEF2">The next generation search &amp; analytics engine.</text>
+  <text x="450" y="250" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="21" fill="#D7DEF2">More powerful. More flexible. <tspan fill="#5FA8FF" font-weight="600">ScopiEngine</tspan>.</text>
+
+  <line x1="60" y1="292" x2="840" y2="292" stroke="#1E2A4A" stroke-width="1"/>
+
+<g transform="translate(90.0,330)"><g stroke="#5FA8FF" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="-4" cy="-4" r="13"/><line x1="6" y1="6" x2="16" y2="16"/></g><text x="0" y="34" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#C7D2E8">Lightning Fast</text><text x="0" y="54" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#C7D2E8">Search</text></g>
+<g transform="translate(270.0,330)"><g stroke="#5FA8FF" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="0" cy="-12" rx="16" ry="6"/><path d="M -16,-12 L -16,6 C -16,9 -9,12 0,12 C 9,12 16,9 16,6 L 16,-12"/></g><text x="0" y="34" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#C7D2E8">Scalable</text><text x="0" y="54" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#C7D2E8">Architecture</text></g>
+<g transform="translate(450.0,330)"><g stroke="#5FA8FF" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="-14" y1="14" x2="-14" y2="2"/><line x1="0" y1="14" x2="0" y2="-10"/><line x1="14" y1="14" x2="14" y2="-16"/></g><text x="0" y="34" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#C7D2E8">Advanced</text><text x="0" y="54" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#C7D2E8">Analytics</text></g>
+<g transform="translate(630.0,330)"><g stroke="#5FA8FF" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="0" cy="-16" r="4"/><circle cx="-14" cy="10" r="4"/><circle cx="14" cy="10" r="4"/><line x1="0" y1="-12" x2="-14" y2="6"/><line x1="0" y1="-12" x2="14" y2="6"/><line x1="-10" y1="10" x2="10" y2="10"/></g><text x="0" y="34" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#C7D2E8">Full-Text</text><text x="0" y="54" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#C7D2E8">Search</text></g>
+<g transform="translate(810.0,330)"><g stroke="#5FA8FF" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M 0,-16 L 14,-10 L 14,2 C 14,12 7,18 0,20 C -7,18 -14,12 -14,2 L -14,-10 Z"/><path d="M -6,0 L -2,5 L 7,-6"/></g><text x="0" y="34" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#C7D2E8">Secure &amp;</text><text x="0" y="54" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#C7D2E8">Reliable</text></g>
+
+  <line x1="60" y1="392" x2="840" y2="392" stroke="#1E2A4A" stroke-width="1"/>
+  <text x="450" y="416" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="13" letter-spacing="4" fill="#6B7BA3">OPEN / POWERFUL / SCOPIENGINE</text>
+</svg>

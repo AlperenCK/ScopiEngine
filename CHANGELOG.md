@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The logo and the banner used two different emblems.** `ScopiEngine-logo.png`
+  and `ScopiEngine-banner.png` were separate raster renders that had drifted
+  into distinct marks — an angular bevelled "S" with a node-graph motif in one,
+  a flowing ribbon "S" with a centered eye/pupil in the other. Both are now
+  generated from one shared vector mark definition (`docs/assets/ScopiEngine-logo.svg`,
+  `docs/assets/ScopiEngine-banner.svg`), so the emblem is provably identical
+  between the two assets rather than merely similar. The unused, third-style
+  `docs/assets/logo.svg` left over from the initial scaffold is removed.
+
 ### Fixed
 - **`--follow` on a file smaller than 4 KiB duplicated every appended line on
   every poll.** `compute_signature` hashed the file's entire current content
