@@ -6,6 +6,20 @@
   const LATENCY_MAX = 20;
   const PREFERRED_COLUMNS = ["@timestamp", "level", "service", "host", "status", "message"];
 
+  const HELP_EXAMPLES = [
+    "level:ERROR AND service:auth",
+    "status:>=500",
+    'message:"connection refused"',
+    "message:conn*",
+    "level:(ERROR OR WARN OR FATAL)",
+    "@timestamp:>now-1h",
+    "_exists_:trace_id",
+    "trace_id.keyword:tr-1250e40d54",
+    "level:ERROR AND service:auth | sort -@timestamp | limit 20",
+    "service:auth | fields service,status,message | limit 50",
+    "status:>=500 | stats count() by service",
+  ];
+
   const el = (id) => document.getElementById(id);
   const indexSelect = el("index-select");
   const queryInput = el("query-input");
@@ -25,6 +39,7 @@
   const indexDetailBody = el("index-detail-body");
   const clusterStatus = el("cluster-status");
   const clusterLabel = el("cluster-label");
+  const helpExamples = el("help-examples");
 
   let latencies = [];
 
@@ -297,16 +312,32 @@
     }
   }
 
-  function setupTabs() {
-    const buttons = document.querySelectorAll(".nav-item");
-    buttons.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        buttons.forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-        el(`tab-${btn.dataset.tab}`).classList.add("active");
-      });
+  function activateTab(name) {
+    document.querySelectorAll(".nav-item").forEach((b) => {
+      b.classList.toggle("active", b.dataset.tab === name);
     });
+    document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+    el(`tab-${name}`).classList.add("active");
+  }
+
+  function setupTabs() {
+    document.querySelectorAll(".nav-item").forEach((btn) => {
+      btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+    });
+  }
+
+  function setupHelp() {
+    helpExamples.innerHTML = "";
+    for (const example of HELP_EXAMPLES) {
+      const li = document.createElement("li");
+      li.textContent = example;
+      li.addEventListener("click", () => {
+        queryInput.value = example;
+        activateTab("search");
+        if (indexSelect.value) runSearch();
+      });
+      helpExamples.appendChild(li);
+    }
   }
 
   function setupSearch() {
@@ -320,6 +351,7 @@
   async function init() {
     setupTabs();
     setupSearch();
+    setupHelp();
     drawSparkline();
     await loadIndices();
   }
