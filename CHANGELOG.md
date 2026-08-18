@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you can click to load straight into the search box. The examples are
   exercised in CI against a real index, so a syntax mistake in one fails the
   build instead of surfacing as a broken click in the browser.
+- **Optional login for the web UI**, via local Service Accounts
+  (`scopi ui-account create/list/enable/disable/delete`) — off by default
+  (`SCOPI_UI_AUTH_ENABLED`), so upgrading never locks anyone out of a UI that
+  was open before. Only `/_ui/` is gated; the REST API and CLI stay
+  unauthenticated, as they always were. Passwords are hashed with
+  PBKDF2-HMAC-SHA256 (stdlib only); sessions are a random token whose SHA-256
+  hash — never the token itself — is persisted, and disabling or deleting an
+  account invalidates its session on the very next request rather than
+  waiting out the TTL. See [docs/UI_AUTH.md](docs/UI_AUTH.md). AD/LDAP bind
+  as a second login method is planned as a follow-up, not included here.
 
 ### Changed
 - **The logo and the banner used two different emblems.** `ScopiEngine-logo.png`

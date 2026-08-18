@@ -20,6 +20,8 @@ from scopiengine.storage.models import (
     SegmentInfo,
     StoredDoc,
     TermStats,
+    UIAccount,
+    UISession,
 )
 
 __all__ = ["SegmentTermEntry", "StorageBackend"]
@@ -313,3 +315,49 @@ class StorageBackend(ABC):
     @abstractmethod
     def delete_checkpoint(self, cp_key: str) -> None:
         """Delete a checkpoint. A no-op when the key does not exist."""
+
+    # -- web UI accounts and sessions ---------------------------------------
+    #
+    # Not part of the inverted index, but kept behind the same backend and DSN
+    # as everything else — same reasoning as ingestion checkpoints above: one
+    # connection, one transactional story, one thing to back up.
+
+    @abstractmethod
+    def create_ui_account(self, account: UIAccount) -> None:
+        """Insert a new local UI account.
+
+        Raises:
+            UIAccountAlreadyExistsError: An account with this username already exists.
+        """
+
+    @abstractmethod
+    def get_ui_account(self, username: str) -> UIAccount | None:
+        """Fetch a UI account, or ``None`` if none is stored under that username."""
+
+    @abstractmethod
+    def list_ui_accounts(self) -> list[UIAccount]:
+        """List every UI account, newest first."""
+
+    @abstractmethod
+    def set_ui_account_disabled(self, username: str, disabled: bool) -> bool:
+        """Enable or disable a UI account. Returns ``False`` if it does not exist."""
+
+    @abstractmethod
+    def delete_ui_account(self, username: str) -> bool:
+        """Delete a UI account. Returns ``False`` if it does not exist."""
+
+    @abstractmethod
+    def create_ui_session(self, session: UISession) -> None:
+        """Insert a new UI session."""
+
+    @abstractmethod
+    def get_ui_session(self, session_id_hash: str) -> UISession | None:
+        """Fetch a UI session, or ``None`` if none is stored under that hash."""
+
+    @abstractmethod
+    def delete_ui_session(self, session_id_hash: str) -> None:
+        """Delete a UI session. A no-op when the hash does not exist."""
+
+    @abstractmethod
+    def delete_expired_ui_sessions(self, *, now: str) -> int:
+        """Delete every session with ``expires_at <= now``. Returns the count removed."""

@@ -61,7 +61,8 @@ scopi search logs2 'status:>=500 | stats count() by service'
 `scopi serve` also serves a minimal web UI at `/_ui/` — an index picker, a
 ScopiQL search box, and a results table, backed by the same REST endpoints
 above. No separate install, no build step: it's plain static files bundled
-with the package.
+with the package. A login can be required for it (off by default) — see
+[docs/UI_AUTH.md](docs/UI_AUTH.md).
 
 <p align="center">
   <img src="docs/assets/ui-search.png" alt="ScopiEngine web UI — search results" width="820">
@@ -147,6 +148,7 @@ scopi ingest file huge.log --index logs --resume      # picks up exactly where i
 | [docs/STORAGE_BACKENDS.md](docs/STORAGE_BACKENDS.md) | SQLite, MS SQL Server, writing a backend |
 | [docs/PLUGINS.md](docs/PLUGINS.md) | Hook points and writing a plugin |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Segments, postings codec, scoring |
+| [docs/UI_AUTH.md](docs/UI_AUTH.md) | Web UI login: Service Accounts, sessions, scope |
 
 ## Status
 

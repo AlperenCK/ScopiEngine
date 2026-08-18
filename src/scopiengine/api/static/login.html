@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScopiEngine — Sign in</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <img src="img/logo.png" alt="ScopiEngine" class="login-logo">
+    <p class="login-sub">Sign in with a Service Account.</p>
+
+    <form id="login-form" autocomplete="on">
+      <label for="login-username">Username</label>
+      <input id="login-username" name="username" type="text" autocomplete="username" required autofocus>
+
+      <label for="login-password">Password</label>
+      <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+
+      <div id="login-error" class="error-banner" hidden></div>
+
+      <button type="submit">Sign in</button>
+    </form>
+
+    <p class="login-hint">
+      No account yet? Ask an operator to run
+      <code class="mono">scopi ui-account create &lt;username&gt;</code>.
+    </p>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+      const form = document.getElementById("login-form");
+      const errorBanner = document.getElementById("login-error");
+
+      function nextUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const next = params.get("next");
+        return next && next.startsWith("/_ui/") ? next : "/_ui/";
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        errorBanner.hidden = true;
+        const username = document.getElementById("login-username").value;
+        const password = document.getElementById("login-password").value;
+        try {
+          const res = await fetch("/_ui/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            throw new Error((body && body.error && body.error.reason) || "sign-in failed");
+          }
+          window.location.href = nextUrl();
+        } catch (err) {
+          errorBanner.textContent = err.message || String(err);
+          errorBanner.hidden = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -40,6 +40,15 @@
   const clusterStatus = el("cluster-status");
   const clusterLabel = el("cluster-label");
   const helpExamples = el("help-examples");
+  const sessionInfo = el("session-info");
+  const sessionPrincipal = el("session-principal");
+  const logoutBtn = el("logout-btn");
+  const settingsAuthOffNote = el("settings-auth-off-note");
+  const accountsBody = el("accounts-body");
+  const accountForm = el("account-form");
+  const accountUsername = el("account-username");
+  const accountPassword = el("account-password");
+  const accountError = el("account-error");
 
   let latencies = [];
 
@@ -348,12 +357,125 @@
     indexSelect.addEventListener("change", () => renderRecentQueries(indexSelect.value));
   }
 
+  async function checkSession() {
+    try {
+      const info = await fetchJSON("/_ui/api/session");
+      if (info.auth_enabled) {
+        sessionInfo.hidden = false;
+        sessionPrincipal.textContent = info.principal;
+        sessionPrincipal.title = `${info.principal} (${info.auth_method})`;
+        settingsAuthOffNote.hidden = true;
+      } else {
+        sessionInfo.hidden = true;
+        settingsAuthOffNote.hidden = false;
+      }
+    } catch {
+      // A 401 here would already have redirected the page itself to the
+      // login screen server-side before this script ever ran, so reaching
+      // this branch means a transient network error — leave the sidebar as-is.
+    }
+  }
+
+  function setupLogout() {
+    logoutBtn.addEventListener("click", async () => {
+      try {
+        await fetch("/_ui/api/logout", { method: "POST" });
+      } finally {
+        window.location.href = "/_ui/login.html";
+      }
+    });
+  }
+
+  async function loadAccounts() {
+    let accounts;
+    try {
+      accounts = await fetchJSON("/_ui/api/accounts");
+    } catch (err) {
+      showError(err.message || String(err));
+      return;
+    }
+    accountsBody.innerHTML = "";
+    for (const account of accounts) {
+      const tr = document.createElement("tr");
+      const statusText = account.disabled ? "disabled" : "enabled";
+      tr.innerHTML =
+        `<td>${account.username}</td><td>${statusText}</td>` +
+        `<td class="mono">${account.created_at}</td>`;
+
+      const actionsTd = document.createElement("td");
+      const actions = document.createElement("div");
+      actions.className = "account-actions";
+
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.textContent = account.disabled ? "Enable" : "Disable";
+      toggleBtn.addEventListener("click", () => toggleAccount(account.username, !account.disabled));
+      actions.appendChild(toggleBtn);
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "danger";
+      deleteBtn.textContent = "Delete";
+      deleteBtn.addEventListener("click", () => deleteAccount(account.username));
+      actions.appendChild(deleteBtn);
+
+      actionsTd.appendChild(actions);
+      tr.appendChild(actionsTd);
+      accountsBody.appendChild(tr);
+    }
+  }
+
+  async function toggleAccount(username, disable) {
+    try {
+      const verb = disable ? "disable" : "enable";
+      await fetchJSON(`/_ui/api/accounts/${encodeURIComponent(username)}/${verb}`, {
+        method: "POST",
+      });
+      await loadAccounts();
+    } catch (err) {
+      showError(err.message || String(err));
+    }
+  }
+
+  async function deleteAccount(username) {
+    try {
+      await fetchJSON(`/_ui/api/accounts/${encodeURIComponent(username)}`, { method: "DELETE" });
+      await loadAccounts();
+    } catch (err) {
+      showError(err.message || String(err));
+    }
+  }
+
+  function setupSettings() {
+    setupLogout();
+    accountForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      accountError.hidden = true;
+      try {
+        await fetchJSON("/_ui/api/accounts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: accountUsername.value,
+            password: accountPassword.value,
+          }),
+        });
+        accountForm.reset();
+        await loadAccounts();
+      } catch (err) {
+        accountError.textContent = err.message || String(err);
+        accountError.hidden = false;
+      }
+    });
+  }
+
   async function init() {
     setupTabs();
     setupSearch();
     setupHelp();
+    setupSettings();
     drawSparkline();
-    await loadIndices();
+    await Promise.all([loadIndices(), checkSession(), loadAccounts()]);
   }
 
   init();

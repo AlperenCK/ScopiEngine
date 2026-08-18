@@ -20,6 +20,7 @@ from scopiengine.errors import (
     IndexAlreadyExistsError,
     IndexNotFoundError,
     StorageError,
+    UIAccountAlreadyExistsError,
 )
 from scopiengine.logging_conf import get_logger
 from scopiengine.storage.base import SegmentTermEntry, StorageBackend
@@ -31,6 +32,8 @@ from scopiengine.storage.models import (
     SegmentState,
     StoredDoc,
     TermStats,
+    UIAccount,
+    UISession,
 )
 from scopiengine.storage.mssql_ddl import MIGRATION_STATEMENTS, SCHEMA, SCHEMA_VERSION
 
@@ -132,6 +135,25 @@ def _row_to_checkpoint(row: Any) -> Checkpoint:
         error=row.error,
         started_at=str(row.started_at),
         updated_at=str(row.updated_at),
+    )
+
+
+def _row_to_ui_account(row: Any) -> UIAccount:
+    return UIAccount(
+        username=row.username,
+        password_hash=row.password_hash,
+        disabled=bool(row.disabled),
+        created_at=str(row.created_at),
+    )
+
+
+def _row_to_ui_session(row: Any) -> UISession:
+    return UISession(
+        session_id_hash=row.session_id_hash,
+        principal=row.principal,
+        auth_method=row.auth_method,
+        created_at=str(row.created_at),
+        expires_at=str(row.expires_at),
     )
 
 
@@ -768,6 +790,94 @@ class MSSQLBackend(StorageBackend):
         conn = self._require_conn()
         with self.transaction():
             conn.execute(f"DELETE FROM {SCHEMA}.ingest_checkpoints WHERE cp_key = ?", (cp_key,))
+
+    # -- web UI accounts and sessions ---------------------------------------
+
+    def create_ui_account(self, account: UIAccount) -> None:
+        conn = self._require_conn()
+        with self.transaction():
+            existing = conn.execute(
+                f"SELECT 1 FROM {SCHEMA}.ui_accounts WHERE username = ?", (account.username,)
+            ).fetchone()
+            if existing is not None:
+                raise UIAccountAlreadyExistsError(f"UI account {account.username!r} already exists")
+            conn.execute(
+                f"INSERT INTO {SCHEMA}.ui_accounts"
+                " (username, password_hash, disabled, created_at)"
+                " VALUES (?, ?, ?, ?)",
+                (
+                    account.username,
+                    account.password_hash,
+                    int(account.disabled),
+                    account.created_at,
+                ),
+            )
+
+    def get_ui_account(self, username: str) -> UIAccount | None:
+        conn = self._require_conn()
+        row = conn.execute(
+            f"SELECT * FROM {SCHEMA}.ui_accounts WHERE username = ?", (username,)
+        ).fetchone()
+        return None if row is None else _row_to_ui_account(row)
+
+    def list_ui_accounts(self) -> list[UIAccount]:
+        conn = self._require_conn()
+        rows = conn.execute(
+            f"SELECT * FROM {SCHEMA}.ui_accounts ORDER BY created_at DESC"
+        ).fetchall()
+        return [_row_to_ui_account(row) for row in rows]
+
+    def set_ui_account_disabled(self, username: str, disabled: bool) -> bool:
+        conn = self._require_conn()
+        with self.transaction():
+            cur = conn.execute(
+                f"UPDATE {SCHEMA}.ui_accounts SET disabled = ? WHERE username = ?",
+                (int(disabled), username),
+            )
+            return cur.rowcount > 0
+
+    def delete_ui_account(self, username: str) -> bool:
+        conn = self._require_conn()
+        with self.transaction():
+            cur = conn.execute(f"DELETE FROM {SCHEMA}.ui_accounts WHERE username = ?", (username,))
+            return cur.rowcount > 0
+
+    def create_ui_session(self, session: UISession) -> None:
+        conn = self._require_conn()
+        with self.transaction():
+            conn.execute(
+                f"INSERT INTO {SCHEMA}.ui_sessions"
+                " (session_id_hash, principal, auth_method, created_at, expires_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (
+                    session.session_id_hash,
+                    session.principal,
+                    session.auth_method,
+                    session.created_at,
+                    session.expires_at,
+                ),
+            )
+
+    def get_ui_session(self, session_id_hash: str) -> UISession | None:
+        conn = self._require_conn()
+        row = conn.execute(
+            f"SELECT * FROM {SCHEMA}.ui_sessions WHERE session_id_hash = ?", (session_id_hash,)
+        ).fetchone()
+        return None if row is None else _row_to_ui_session(row)
+
+    def delete_ui_session(self, session_id_hash: str) -> None:
+        conn = self._require_conn()
+        with self.transaction():
+            conn.execute(
+                f"DELETE FROM {SCHEMA}.ui_sessions WHERE session_id_hash = ?",
+                (session_id_hash,),
+            )
+
+    def delete_expired_ui_sessions(self, *, now: str) -> int:
+        conn = self._require_conn()
+        with self.transaction():
+            cur = conn.execute(f"DELETE FROM {SCHEMA}.ui_sessions WHERE expires_at <= ?", (now,))
+            return cur.rowcount
 
 
 def _prefix_upper_bound(prefix: str) -> str | None:
