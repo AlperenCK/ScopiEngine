@@ -212,5 +212,5 @@ Initial release.
   used by the README quickstart and `docs/INGEST.md`.
 - A feature matrix and an ES DSL compatibility summary in `README.md`.
 
-[Unreleased]: https://github.com/AlperenCK/ScopiEngine/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/AlperenCK/ScopiEngine/releases/tag/v1.0.0
+[Unreleased]: https://github.com/AlperenCK/ScopiEngine/compare/1.0.0...HEAD
+[1.0.0]: https://github.com/AlperenCK/ScopiEngine/releases/tag/1.0.0
