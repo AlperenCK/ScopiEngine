@@ -103,9 +103,15 @@ one of those commands after a big ingest for query performance.
 
 A checkpoint's key is `cp_key = blake2b(f"{index}|{abspath}").hexdigest()[:16]`
 — stable across restarts, distinct per (index, absolute path) pair. Its
-signature is `source_sig = f"{st_dev}:{st_ino}:{sha1(first 4 KiB)}"`, used to
-tell "still the same file" apart from "rotated out from under me" without
-reading the whole file on every check.
+signature is `source_sig = f"{st_dev}:{st_ino}:{sha1(first 4 KiB)}"` **once the
+file has reached 4 KiB** — used to tell "still the same file" apart from
+"rotated out from under me" without reading the whole file on every check.
+Below 4 KiB the content hash is left out and the signature is device and
+inode alone: hashing "everything there is so far" for a file still growing
+past that threshold would make the signature change on every single append,
+which is indistinguishable from a rotation on every poll. Device and inode
+are already stable across an in-place append, so they carry the signal alone
+until there is a fixed window of content worth hashing.
 
 On startup (or default, when nothing overrides it — see `--from` below),
 resume compares the saved checkpoint against the source's *current* state:
@@ -236,12 +242,12 @@ this test suite claims to have exercised.
   checkpoint`) was not passed. The default `--from start` always begins at
   byte 0; this is safe (not a duplication) under the default `--id-mode
   offset`, but it does mean a full re-read.
-- **"restarted at byte 0" warning on a file that was not touched** — check
-  whether the file is genuinely smaller than 4 KiB and still growing: the
-  4 KiB signature window means a tiny, still-growing file's signature keeps
-  changing as it grows past its first few KiB, which looks identical to
-  rotation until it exceeds 4 KiB. This stabilises on its own once the file
-  is larger than the signature window; it is not a resume defect.
+- **"restarted at byte 0" warning on a file that was not touched** — before a
+  file has grown past the 4 KiB signature window, its signature is derived
+  from device and inode alone, precisely so an ordinary append cannot look
+  like a rotation. If this warning still fires on an untouched file, the file
+  has genuinely been replaced or its inode has been reused — check what wrote
+  to that path.
 - **`scopi ingest status` shows `state: failed`** — the reader hit an
   unrecoverable error (the source vanished mid-run without ever coming back,
   a permissions change, disk error). The `error` column carries the message.

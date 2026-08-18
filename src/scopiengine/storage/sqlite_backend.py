@@ -8,10 +8,12 @@ inside a single transaction rather than one round trip per row.
 
 from __future__ import annotations
 
+import functools
 import itertools
 import json
 import sqlite3
-from collections.abc import Generator, Iterable, Iterator, Sequence
+import threading
+from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,6 +40,35 @@ __all__ = ["SQLiteBackend"]
 _WRITE_CHUNK_SIZE = 1000
 
 _T = TypeVar("_T")
+_R = TypeVar("_R")
+
+
+def _synchronized(method: Callable[..., _R]) -> Callable[..., _R]:
+    """Serialize one method call against every other locked call on the same backend.
+
+    ``check_same_thread=False`` (see :meth:`SQLiteBackend.open`) only disables
+    Python's same-thread guard — the standard library is explicit that the
+    caller is then responsible for its own synchronization. The REST API runs
+    its handlers in Starlette's worker threadpool, so two requests genuinely can
+    call into the same backend at the same instant, and an unsynchronized
+    ``sqlite3.Connection`` shared that way can surface as a driver-level
+    ``InterfaceError`` under real concurrency — this is not a hypothetical: it
+    is how a pre-existing test's occasional CI failure was root-caused. Every
+    method that touches ``self._conn`` acquires ``self._lock`` for its whole
+    body; :meth:`SQLiteBackend.transaction` does the same directly in its own
+    body, since a ``@contextmanager``'s lock must stay held across its ``yield``
+    for the whole duration the caller has the transaction open — a nested
+    ``with self.transaction():`` (or a decorated call issued from inside one)
+    on the same thread re-enters the same lock without blocking on itself,
+    since it is reentrant.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self: SQLiteBackend, *args: Any, **kwargs: Any) -> _R:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 def _now_iso() -> str:
@@ -112,9 +143,15 @@ class SQLiteBackend(StorageBackend):
         self._path = path
         self._conn: sqlite3.Connection | None = None
         self._tx_depth = 0
+        #: Guards every access to ``self._conn``. Reentrant so a method that
+        #: opens a transaction and then calls another locked method on the
+        #: same thread (or a nested ``with self.transaction():``) does not
+        #: block on itself.
+        self._lock = threading.RLock()
 
     # -- lifecycle ---------------------------------------------------------
 
+    @_synchronized
     def open(self) -> None:
         if self._conn is not None:
             return
@@ -128,11 +165,13 @@ class SQLiteBackend(StorageBackend):
             conn.execute(pragma)
         self._conn = conn
 
+    @_synchronized
     def close(self) -> None:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
 
+    @_synchronized
     def ping(self) -> bool:
         if self._conn is None:
             return False
@@ -180,32 +219,38 @@ class SQLiteBackend(StorageBackend):
 
     @contextmanager
     def transaction(self) -> Generator[None, None, None]:
-        conn = self._require_conn()
-        if self._tx_depth > 0:
-            self._tx_depth += 1
+        # Held for the whole scope, including across the yield: the lock must stay
+        # taken for as long as the caller has the transaction open, not just for
+        # this generator's own synchronous prelude. A decorated method called from
+        # inside the with-block (or a nested with self.transaction():) re-enters
+        # the same lock on the same thread without blocking on itself.
+        with self._lock:
+            conn = self._require_conn()
+            if self._tx_depth > 0:
+                self._tx_depth += 1
+                try:
+                    yield
+                finally:
+                    self._tx_depth -= 1
+                return
+
+            self._tx_depth = 1
+            conn.execute("BEGIN IMMEDIATE")
             try:
                 yield
+            except sqlite3.Error as exc:
+                # A driver-level failure: translate it into the storage error hierarchy.
+                conn.execute("ROLLBACK")
+                raise StorageError(f"transaction rolled back: {exc}") from exc
+            except BaseException:
+                # Anything else (ScopiError subclasses, caller-raised exceptions) rolls
+                # back but keeps its own type and message intact.
+                conn.execute("ROLLBACK")
+                raise
+            else:
+                conn.execute("COMMIT")
             finally:
-                self._tx_depth -= 1
-            return
-
-        self._tx_depth = 1
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            yield
-        except sqlite3.Error as exc:
-            # A driver-level failure: translate it into the storage error hierarchy.
-            conn.execute("ROLLBACK")
-            raise StorageError(f"transaction rolled back: {exc}") from exc
-        except BaseException:
-            # Anything else (ScopiError subclasses, caller-raised exceptions) rolls
-            # back but keeps its own type and message intact.
-            conn.execute("ROLLBACK")
-            raise
-        else:
-            conn.execute("COMMIT")
-        finally:
-            self._tx_depth = 0
+                self._tx_depth = 0
 
     # -- indices -------------------------------------------------------------
 
@@ -245,6 +290,7 @@ class SQLiteBackend(StorageBackend):
             created_at=created_at,
         )
 
+    @_synchronized
     def get_index(self, name: str) -> IndexInfo:
         return _row_to_index_info(self._get_index_row(name))
 
@@ -257,6 +303,7 @@ class SQLiteBackend(StorageBackend):
                 conn.execute(f"DELETE FROM {table} WHERE index_id = ?", (index_id,))
             conn.execute("DELETE FROM indices WHERE index_id = ?", (index_id,))
 
+    @_synchronized
     def list_indices(self) -> list[IndexInfo]:
         conn = self._require_conn()
         rows = conn.execute("SELECT * FROM indices ORDER BY name").fetchall()
@@ -331,6 +378,7 @@ class SQLiteBackend(StorageBackend):
 
     # -- documents -------------------------------------------------------------
 
+    @_synchronized
     def put_documents(self, index: str, docs: Iterable[StoredDoc]) -> None:
         conn = self._require_conn()
         batch = list(docs)
@@ -359,6 +407,7 @@ class SQLiteBackend(StorageBackend):
                     (new_count, index_id),
                 )
 
+    @_synchronized
     def get_documents(self, index: str, ords: Sequence[int]) -> list[StoredDoc]:
         conn = self._require_conn()
         row = self._get_index_row(index)
@@ -378,6 +427,7 @@ class SQLiteBackend(StorageBackend):
             if o in by_ord
         ]
 
+    @_synchronized
     def resolve_ids(self, index: str, doc_ids: Sequence[str]) -> dict[str, int]:
         conn = self._require_conn()
         row = self._get_index_row(index)
@@ -392,6 +442,7 @@ class SQLiteBackend(StorageBackend):
         ).fetchall()
         return {r["doc_id"]: r["doc_ord"] for r in rows}
 
+    @_synchronized
     def mark_deleted(self, index: str, ords: Sequence[int]) -> None:
         conn = self._require_conn()
         if not ords:
@@ -406,16 +457,39 @@ class SQLiteBackend(StorageBackend):
             )
 
     def iter_deleted(self, index: str) -> Iterator[int]:
-        conn = self._require_conn()
-        row = self._get_index_row(index)
-        cur = conn.execute(
-            "SELECT doc_ord FROM deletions WHERE index_id = ? ORDER BY doc_ord",
-            (row["index_id"],),
-        )
-        return (r["doc_ord"] for r in cur)
+        with self._lock:
+            conn = self._require_conn()
+            row = self._get_index_row(index)
+            cur = conn.execute(
+                "SELECT doc_ord FROM deletions WHERE index_id = ? ORDER BY doc_ord",
+                (row["index_id"],),
+            )
+        return self._locked_rows(cur, lambda r: r["doc_ord"])
+
+    def _locked_rows(
+        self, cur: sqlite3.Cursor, transform: Callable[[sqlite3.Row], _T]
+    ) -> Iterator[_T]:
+        """Pull rows from ``cur`` one at a time, each fetch its own critical section.
+
+        ``iter_deleted``/``iter_terms`` stay genuinely lazy on purpose — that is
+        what keeps a term matching millions of documents from ever materialising a
+        list — but the cursor they hand back is consumed long after the method that
+        created it returns, on whatever thread the caller happens to iterate from.
+        Locking only the individual ``next(cur)`` call, rather than the method body
+        that created the cursor, protects each fetch against concurrent access
+        without holding the lock across the caller's own processing between rows.
+        """
+        while True:
+            with self._lock:
+                try:
+                    row = next(cur)
+                except StopIteration:
+                    return
+            yield transform(row)
 
     # -- segments and postings -------------------------------------------------
 
+    @_synchronized
     def write_segment(
         self,
         index: str,
@@ -465,6 +539,7 @@ class SQLiteBackend(StorageBackend):
                     norms_rows,
                 )
 
+    @_synchronized
     def list_segments(self, index: str) -> list[SegmentInfo]:
         conn = self._require_conn()
         row = self._get_index_row(index)
@@ -483,6 +558,7 @@ class SQLiteBackend(StorageBackend):
             for r in rows
         ]
 
+    @_synchronized
     def drop_segments(self, index: str, segment_ids: Sequence[int]) -> None:
         conn = self._require_conn()
         if not segment_ids:
@@ -498,6 +574,7 @@ class SQLiteBackend(StorageBackend):
                     [index_id, *segment_ids],
                 )
 
+    @_synchronized
     def get_postings(self, index: str, field_id: int, term: str) -> list[tuple[int, int, bytes]]:
         conn = self._require_conn()
         row = self._get_index_row(index)
@@ -519,30 +596,32 @@ class SQLiteBackend(StorageBackend):
         lo: str | None = None,
         hi: str | None = None,
     ) -> Iterator[str]:
-        conn = self._require_conn()
-        row = self._get_index_row(index)
-        index_id = row["index_id"]
+        with self._lock:
+            conn = self._require_conn()
+            row = self._get_index_row(index)
+            index_id = row["index_id"]
 
-        lower: str | None
-        upper: str | None
-        if prefix is not None:
-            lower, upper = prefix, _prefix_upper_bound(prefix)
-        else:
-            lower, upper = lo, hi
+            lower: str | None
+            upper: str | None
+            if prefix is not None:
+                lower, upper = prefix, _prefix_upper_bound(prefix)
+            else:
+                lower, upper = lo, hi
 
-        query = "SELECT DISTINCT term FROM terms WHERE index_id = ? AND field_id = ?"
-        params: list[Any] = [index_id, field_id]
-        if lower is not None:
-            query += " AND term >= ?"
-            params.append(lower)
-        if upper is not None:
-            query += " AND term < ?"
-            params.append(upper)
-        query += " ORDER BY term"
+            query = "SELECT DISTINCT term FROM terms WHERE index_id = ? AND field_id = ?"
+            params: list[Any] = [index_id, field_id]
+            if lower is not None:
+                query += " AND term >= ?"
+                params.append(lower)
+            if upper is not None:
+                query += " AND term < ?"
+                params.append(upper)
+            query += " ORDER BY term"
 
-        cur = conn.execute(query, params)
-        return (r["term"] for r in cur)
+            cur = conn.execute(query, params)
+        return self._locked_rows(cur, lambda r: r["term"])
 
+    @_synchronized
     def get_term_stats(self, index: str, field_id: int, term: str) -> TermStats:
         conn = self._require_conn()
         row = self._get_index_row(index)
@@ -555,6 +634,7 @@ class SQLiteBackend(StorageBackend):
         ).fetchone()
         return TermStats(term=term, doc_freq=stats["doc_freq"], total_tf=stats["total_tf"])
 
+    @_synchronized
     def get_norms(self, index: str, field_id: int, segment_id: int) -> NormsBlock | None:
         conn = self._require_conn()
         row = self._get_index_row(index)
@@ -574,6 +654,7 @@ class SQLiteBackend(StorageBackend):
             norms=bytes(found["norms"]),
         )
 
+    @_synchronized
     def index_stats(self, index: str) -> dict[str, Any]:
         conn = self._require_conn()
         row = self._get_index_row(index)
@@ -623,6 +704,7 @@ class SQLiteBackend(StorageBackend):
                 ),
             )
 
+    @_synchronized
     def load_checkpoint(self, cp_key: str) -> Checkpoint | None:
         conn = self._require_conn()
         row = conn.execute(
@@ -630,6 +712,7 @@ class SQLiteBackend(StorageBackend):
         ).fetchone()
         return None if row is None else _row_to_checkpoint(row)
 
+    @_synchronized
     def list_checkpoints(self, index_name: str | None = None) -> list[Checkpoint]:
         conn = self._require_conn()
         if index_name is None:

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`--follow` on a file smaller than 4 KiB duplicated every appended line on
+  every poll.** `compute_signature` hashed the file's entire current content
+  whenever it was under the 4 KiB head-hash window, so a genuinely unchanged,
+  still-growing file got a new signature on every append; `classify_change`
+  cannot tell that apart from a real rotation, closed the handle, and
+  reopened the file at byte 0. Because `--id-mode offset` (the default) bakes
+  the signature into each document id, the reprocessed lines landed as brand
+  new documents rather than overwriting the old ones — an unbounded, silent
+  duplication for any actively-growing small log, which is a common shape
+  right after a fresh rotation. Below the 4 KiB threshold the signature is
+  now device and inode alone, which an in-place append cannot change.
+  `docs/INGEST.md`'s troubleshooting section previously described the
+  symptom as expected behaviour rather than the defect it was; corrected.
+- **`SQLiteBackend` was not safe for the concurrent use the REST API already
+  requires of it.** `scopi serve` runs its handlers in Starlette's worker
+  threadpool, so two HTTP requests can call into the same backend at the same
+  instant — an ordinary way to use the server, not an edge case. The single
+  shared `sqlite3.Connection` (`check_same_thread=False`) had no
+  synchronization around it, so concurrent writers and readers could corrupt
+  its transaction state outright (`cannot start a transaction within a
+  transaction`, `cannot commit - no transaction is active`) and lose writes.
+  Found while root-causing a flaky CI failure in an unrelated ingest test — a
+  targeted stress test reproduced real errors on 3 out of 3 runs against the
+  old code. Every method now acquires a per-backend `threading.RLock` for its
+  call; the two methods that stream results lazily (`iter_deleted`,
+  `iter_terms`) lock only each individual row fetch, so a term matching
+  millions of documents still never materialises a list.
+
 ## [1.0.0] - 2026-08-17
 
 Initial release.

@@ -134,10 +134,59 @@ def test_follow_picks_up_appended_lines_within_flush_interval(
                 fh.write("line2\n")
 
             _wait_until(lambda: engine.stats("logs")["doc_count"] >= 2, timeout=3.0)
+            # An exact bound, not just ">= 2": a false "rotated" classification on
+            # every poll would also satisfy ">= 2" once duplicates start piling up,
+            # so a loose assertion here would not have caught that class of bug.
+            time.sleep(0.2)
+            assert engine.stats("logs")["doc_count"] == 2
         finally:
             stop_event.set()
             thread.join(timeout=5)
         assert result["stats"].state == "stopped"
+
+
+def test_follow_of_a_small_growing_file_never_reprocesses_it(
+    tmp_path: Path, storage_dsn: str
+) -> None:
+    """A file that stays under the signature's head-hash window must not look "rotated"
+    on every poll just because it keeps growing.
+
+    ``compute_signature`` hashes the file's current content when it is smaller than
+    ``SIGNATURE_HEAD_BYTES`` — if that window were not held fixed, every append
+    would change the hash of "everything there is so far", which is exactly what
+    just changed. ``classify_change`` cannot tell that apart from a genuine rotation,
+    so it would close the handle, reopen at byte 0, and reprocess the whole file —
+    and because ``id_mode="offset"`` bakes the (churning) signature into each
+    document id, the reprocessed lines land as new documents instead of overwriting
+    the old ones. Five appends of a single short line, each within the 4 KiB
+    threshold, must produce exactly five documents, not five-plus-duplicates.
+    """
+    log_path = tmp_path / "app.log"
+    log_path.write_text("line0\n")
+    assert log_path.stat().st_size < 4096
+
+    with _open_engine(storage_dsn, flush_interval=0.05, batch_size=1000, queue_size=4) as engine:
+        engine.create_index("logs")
+        options = IngestOptions(
+            index="logs", follow=True, poll_min_interval=0.02, poll_max_interval=0.05
+        )
+        pipeline = IngestPipeline(engine, LocalFileSource(log_path), options)
+        stop_event = threading.Event()
+        thread, result = _run_in_background(pipeline, stop_event)
+        try:
+            _wait_until(lambda: engine.stats("logs")["doc_count"] >= 1)
+            for i in range(1, 6):
+                with log_path.open("a") as fh:
+                    fh.write(f"line{i}\n")
+                _wait_until(lambda i=i: engine.stats("logs")["doc_count"] >= i + 1, timeout=3.0)
+                assert log_path.stat().st_size < 4096, (
+                    "test assumption: file stays small throughout"
+                )
+        finally:
+            stop_event.set()
+            thread.join(timeout=5)
+        assert result["stats"].state == "stopped"
+        assert engine.stats("logs")["doc_count"] == 6
 
 
 # -- rotation and truncation, handled distinctly -----------------------------

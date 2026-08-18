@@ -90,6 +90,19 @@ The default, zero-configuration backend. No server, no extra dependency — the
 standard library's `sqlite3` module is enough. Good for a laptop, a single
 node, or CI.
 
+**Thread-safe by design, not by accident.** The REST API runs its handlers in
+Starlette's worker threadpool, so two HTTP requests can call into the same
+backend at the same instant — an ordinary, expected way to use `scopi serve`,
+not an edge case. The single `sqlite3.Connection` this backend opens
+(`check_same_thread=False`) is only safe for that if every access is
+externally serialized, so every method acquires a per-backend `threading.RLock`
+for its whole call; `iter_deleted`/`iter_terms` lock only each individual row
+fetch, so a lazily-streamed term still never materialises a list while
+remaining safe to consume from any thread. Without this, concurrent writers
+and readers on the same connection corrupt its transaction state outright
+(`cannot start a transaction within a transaction`, lost writes) — not a
+theoretical risk, a defect that shipped and was caught by a flaky CI failure.
+
 ```sql
 PRAGMA journal_mode = WAL;  PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;   PRAGMA temp_store = MEMORY;
