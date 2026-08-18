@@ -40,6 +40,8 @@ _TYPES: dict[str, type] = {
     "queue_size": int,
     "max_segments": int,
     "max_sort_candidates": int,
+    "ui_auth_enabled": bool,
+    "ui_session_ttl": int,
 }
 
 
@@ -72,6 +74,14 @@ class Settings:
             ``_score`` sort (the default, or no ``sort`` at all) never
             consults this setting — it is already exact and unbounded, since
             relevance ranking is computed inline while matching.
+        ui_auth_enabled: Require a login for the web UI (``/_ui/``). Off by
+            default — installations that upgrade keep the UI reachable
+            exactly as before; turning this on with no
+            :class:`~scopiengine.storage.models.UIAccount` yet created locks
+            the UI out until one is bootstrapped with ``scopi ui-account
+            create``. The REST API itself is never gated by this setting.
+        ui_session_ttl: Seconds a web UI login stays valid before it must be
+            re-established.
     """
 
     storage: str = DEFAULT_STORAGE_DSN
@@ -88,6 +98,8 @@ class Settings:
     queue_size: int = 8
     max_segments: int = 10
     max_sort_candidates: int = 10000
+    ui_auth_enabled: bool = False
+    ui_session_ttl: int = 43200
 
     def __post_init__(self) -> None:
         self.validate()
@@ -109,6 +121,7 @@ class Settings:
             "queue_size",
             "max_segments",
             "max_sort_candidates",
+            "ui_session_ttl",
         ):
             value = getattr(self, name)
             if value < 1:

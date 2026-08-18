@@ -124,4 +124,25 @@ MIGRATION_STATEMENTS: tuple[str, ...] = (
         updated_at    TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS ui_accounts (
+        username      TEXT PRIMARY KEY,
+        password_hash TEXT NOT NULL,
+        disabled      INTEGER NOT NULL DEFAULT 0,
+        created_at    TEXT NOT NULL
+    ) WITHOUT ROWID
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ui_sessions (
+        session_id_hash TEXT PRIMARY KEY,
+        principal       TEXT NOT NULL,
+        auth_method     TEXT NOT NULL,
+        created_at      TEXT NOT NULL,
+        expires_at      TEXT NOT NULL
+    ) WITHOUT ROWID
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS ix_ui_sessions_expires_at
+        ON ui_sessions (expires_at)
+    """,
 )

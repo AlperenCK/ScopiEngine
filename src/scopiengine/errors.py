@@ -8,6 +8,7 @@ exception onto a meaningful exit code.
 from __future__ import annotations
 
 __all__ = [
+    "AuthenticationError",
     "BackendNotAvailableError",
     "ConfigurationError",
     "IndexAlreadyExistsError",
@@ -18,6 +19,7 @@ __all__ = [
     "PluginError",
     "ScopiError",
     "StorageError",
+    "UIAccountAlreadyExistsError",
     "UnsupportedFeatureError",
 ]
 
@@ -125,3 +127,22 @@ class IngestError(ScopiError):
 
     error_type = "ingest_error"
     status = 400
+
+
+class AuthenticationError(ScopiError):
+    """A login attempt or an existing session failed to authenticate.
+
+    Raised for wrong credentials, a disabled account, or a missing/expired/
+    invalid session — deliberately without distinguishing which, in the
+    response, so a client cannot use the error to enumerate valid usernames.
+    """
+
+    error_type = "authentication_error"
+    status = 401
+
+
+class UIAccountAlreadyExistsError(ScopiError):
+    """A web UI service account with that username already exists."""
+
+    error_type = "ui_account_already_exists"
+    status = 409

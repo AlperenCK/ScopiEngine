@@ -216,6 +216,11 @@ under that prefix is claimed by the UI, which is why `_ui` joins `_health`,
 `GET` its search/stats routes directly (creating, checking, and deleting an
 index named `_ui` still works fine via `PUT`/`HEAD`/`DELETE`).
 
+The UI can require a login — off by default, so upgrading never locks
+anyone out of a UI that was open before. See
+[UI_AUTH.md](UI_AUTH.md) for how to turn it on, bootstrap the first Service
+Account, and what is (and deliberately is not) protected by it.
+
 ### Running it in Docker
 
 ```bash

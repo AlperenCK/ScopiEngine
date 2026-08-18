@@ -19,6 +19,8 @@ __all__ = [
     "SegmentState",
     "StoredDoc",
     "TermStats",
+    "UIAccount",
+    "UISession",
 ]
 
 
@@ -172,3 +174,50 @@ class Checkpoint:
     error: str | None
     started_at: str
     updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class UIAccount:
+    """A locally-defined login for the web UI — as opposed to an AD/LDAP identity,
+    which is never stored (it is verified against the directory on every login).
+
+    Attributes:
+        username: Unique, case-sensitive login name.
+        password_hash: A PBKDF2-HMAC-SHA256 hash produced by
+            :func:`scopiengine.auth.passwords.hash_password` — algorithm, iteration
+            count and salt are encoded alongside the digest, so the hashing
+            parameters can change without invalidating existing accounts.
+        disabled: Whether this account is currently allowed to log in. Disabling
+            rather than deleting preserves the audit trail of which sessions were
+            ever issued to it.
+        created_at: ISO-8601 UTC timestamp.
+    """
+
+    username: str
+    password_hash: str
+    disabled: bool
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class UISession:
+    """One active web UI login.
+
+    Attributes:
+        session_id_hash: SHA-256 hex digest of the session token. The token
+            itself is never stored — only a client presenting the matching raw
+            token can be resolved back to this row, the same reasoning as a
+            password hash.
+        principal: The identity this session was issued to — a
+            :class:`UIAccount` username today; an AD/LDAP identity once that
+            login method exists.
+        auth_method: How the session was established, e.g. ``"service_account"``.
+        created_at: ISO-8601 UTC timestamp the session was issued.
+        expires_at: ISO-8601 UTC timestamp past which the session is invalid.
+    """
+
+    session_id_hash: str
+    principal: str
+    auth_method: str
+    created_at: str
+    expires_at: str

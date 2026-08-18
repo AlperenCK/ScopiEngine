@@ -134,4 +134,29 @@ MIGRATION_STATEMENTS: tuple[str, ...] = (
         updated_at    NVARCHAR(32)  NOT NULL
     )
     """,
+    """
+    IF OBJECT_ID('scopi.ui_accounts', 'U') IS NULL
+    CREATE TABLE scopi.ui_accounts (
+        username      NVARCHAR(256) NOT NULL PRIMARY KEY CLUSTERED,
+        password_hash NVARCHAR(450) NOT NULL,
+        disabled      BIT NOT NULL DEFAULT 0,
+        created_at    NVARCHAR(32)  NOT NULL
+    )
+    """,
+    """
+    IF OBJECT_ID('scopi.ui_sessions', 'U') IS NULL
+    CREATE TABLE scopi.ui_sessions (
+        session_id_hash NVARCHAR(64)  NOT NULL PRIMARY KEY CLUSTERED,
+        principal        NVARCHAR(256) NOT NULL,
+        auth_method      NVARCHAR(50)  NOT NULL,
+        created_at       NVARCHAR(32)  NOT NULL,
+        expires_at       NVARCHAR(32)  NOT NULL
+    )
+    """,
+    """
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes WHERE name = 'ix_ui_sessions_expires_at'
+    )
+    CREATE INDEX ix_ui_sessions_expires_at ON scopi.ui_sessions (expires_at)
+    """,
 )

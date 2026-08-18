@@ -13,11 +13,15 @@ from pathlib import Path
 
 import pytest
 
-from scopiengine.errors import IndexAlreadyExistsError, IndexNotFoundError
+from scopiengine.errors import (
+    IndexAlreadyExistsError,
+    IndexNotFoundError,
+    UIAccountAlreadyExistsError,
+)
 from scopiengine.storage import open_storage
 from scopiengine.storage.base import StorageBackend
 from scopiengine.storage.codec import encode_norms, encode_postings
-from scopiengine.storage.models import Checkpoint, NormsBlock
+from scopiengine.storage.models import Checkpoint, NormsBlock, UIAccount, UISession
 
 _BACKEND_PARAMS = [
     pytest.param("sqlite", id="sqlite"),
@@ -38,6 +42,8 @@ def reset_backend(backend: StorageBackend) -> None:
         backend.delete_index(info.name)
     for checkpoint in backend.list_checkpoints():
         backend.delete_checkpoint(checkpoint.cp_key)
+    for account in backend.list_ui_accounts():
+        backend.delete_ui_account(account.username)
 
 
 @pytest.fixture(params=_BACKEND_PARAMS)
@@ -392,6 +398,91 @@ def test_checkpoint_save_load_list_delete(backend: StorageBackend) -> None:
     backend.delete_checkpoint("never-existed")  # no-op, must not raise
 
 
+# -- web UI accounts and sessions -------------------------------------------------
+
+
+def _ui_account(username: str, *, disabled: bool = False) -> UIAccount:
+    return UIAccount(
+        username=username,
+        password_hash="pbkdf2_sha256$1$deadbeef$deadbeef",
+        disabled=disabled,
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+
+
+def test_ui_account_create_get_list_delete(backend: StorageBackend) -> None:
+    assert backend.get_ui_account("missing") is None
+
+    backend.create_ui_account(_ui_account("alice"))
+    loaded = backend.get_ui_account("alice")
+    assert loaded is not None
+    assert loaded.username == "alice"
+    assert loaded.disabled is False
+
+    backend.create_ui_account(_ui_account("bob"))
+    assert {a.username for a in backend.list_ui_accounts()} == {"alice", "bob"}
+
+    assert backend.delete_ui_account("alice") is True
+    assert backend.get_ui_account("alice") is None
+    assert backend.delete_ui_account("alice") is False  # already gone, no-op
+
+
+def test_ui_account_create_rejects_a_duplicate_username(backend: StorageBackend) -> None:
+    backend.create_ui_account(_ui_account("alice"))
+    with pytest.raises(UIAccountAlreadyExistsError):
+        backend.create_ui_account(_ui_account("alice"))
+
+
+def test_ui_account_disable_enable(backend: StorageBackend) -> None:
+    backend.create_ui_account(_ui_account("alice"))
+    assert backend.set_ui_account_disabled("alice", True) is True
+    assert backend.get_ui_account("alice").disabled is True  # type: ignore[union-attr]
+    assert backend.set_ui_account_disabled("alice", False) is True
+    assert backend.get_ui_account("alice").disabled is False  # type: ignore[union-attr]
+    assert backend.set_ui_account_disabled("missing", True) is False
+
+
+def _ui_session(session_id_hash: str, principal: str = "alice") -> UISession:
+    return UISession(
+        session_id_hash=session_id_hash,
+        principal=principal,
+        auth_method="service_account",
+        created_at="2026-01-01T00:00:00+00:00",
+        expires_at="2026-01-01T12:00:00+00:00",
+    )
+
+
+def test_ui_session_create_get_delete(backend: StorageBackend) -> None:
+    assert backend.get_ui_session("missing") is None
+
+    backend.create_ui_session(_ui_session("hash-1"))
+    loaded = backend.get_ui_session("hash-1")
+    assert loaded is not None
+    assert loaded.principal == "alice"
+    assert loaded.auth_method == "service_account"
+
+    backend.delete_ui_session("hash-1")
+    assert backend.get_ui_session("hash-1") is None
+    backend.delete_ui_session("never-existed")  # no-op, must not raise
+
+
+def test_delete_expired_ui_sessions(backend: StorageBackend) -> None:
+    backend.create_ui_session(_ui_session("still-valid", "alice"))
+    backend.create_ui_session(
+        UISession(
+            session_id_hash="expired",
+            principal="alice",
+            auth_method="service_account",
+            created_at="2025-01-01T00:00:00+00:00",
+            expires_at="2025-01-01T01:00:00+00:00",
+        )
+    )
+    removed = backend.delete_expired_ui_sessions(now="2026-01-01T00:00:00+00:00")
+    assert removed == 1
+    assert backend.get_ui_session("expired") is None
+    assert backend.get_ui_session("still-valid") is not None
+
+
 # -- transactions and migration -------------------------------------------------
 
 
@@ -445,14 +536,17 @@ def test_reset_empties_a_shared_database(tmp_path: Path) -> None:
         _create_index(first, "logs")
         _create_index(first, "metrics")
         first.save_checkpoint(_checkpoint("cp-1"))
+        first.create_ui_account(_ui_account("alice"))
         assert len(first.list_indices()) == 2
         assert len(first.list_checkpoints()) == 1
+        assert len(first.list_ui_accounts()) == 1
         reset_backend(first)
 
     with open_storage(dsn) as second:
         second.migrate()
         assert second.list_indices() == []
         assert second.list_checkpoints() == []
+        assert second.list_ui_accounts() == []
         # An index name reused after the reset must not collide.
         _create_index(second, "logs")
         assert [info.name for info in second.list_indices()] == ["logs"]

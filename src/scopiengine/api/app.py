@@ -37,21 +37,32 @@ from __future__ import annotations
 import json
 import time
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, Query, Response
+from fastapi import Body, FastAPI, Query, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from scopiengine import TAGLINE, __version__
+from scopiengine.api.middleware import UIAuthMiddleware
+from scopiengine.auth.passwords import hash_password
+from scopiengine.auth.service_accounts import authenticate_service_account
+from scopiengine.auth.sessions import SESSION_COOKIE_NAME, create_session, revoke_session
 from scopiengine.engine import Engine
-from scopiengine.errors import IngestError, InvalidQueryError, ScopiError, UnsupportedFeatureError
+from scopiengine.errors import (
+    IngestError,
+    InvalidQueryError,
+    ScopiError,
+    UnsupportedFeatureError,
+)
 from scopiengine.ingest.jobs import IngestJobManager
 from scopiengine.ingest.pipeline import IngestOptions
 from scopiengine.plugins.registry import PluginLoadResult
 from scopiengine.query.results import run_dsl, run_scopiql
 from scopiengine.settings import Settings
+from scopiengine.storage.models import UIAccount
 
 __all__ = ["create_app", "execute_bulk", "parse_bulk_lines"]
 
@@ -92,6 +103,14 @@ def _job_not_found(job_id: str) -> JSONResponse:
     return JSONResponse(
         status_code=404,
         content={"error": {"type": "ingest_job_not_found", "reason": reason}, "status": 404},
+    )
+
+
+def _ui_account_not_found(username: str) -> JSONResponse:
+    reason = f"no UI account found for username {username!r}"
+    return JSONResponse(
+        status_code=404,
+        content={"error": {"type": "ui_account_not_found", "reason": reason}, "status": 404},
     )
 
 
@@ -222,6 +241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="ScopiEngine", version=__version__, lifespan=lifespan)
     app.state.settings = resolved_settings
+    app.add_middleware(UIAuthMiddleware)
 
     def engine() -> Engine:
         return app.state.engine  # type: ignore[no-any-return]
@@ -293,6 +313,104 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/_ui", include_in_schema=False)
     def ui_redirect() -> RedirectResponse:
         return RedirectResponse(url="/_ui/")
+
+    # -- web UI auth: login/logout/session, and Service Account management --
+    #
+    # Registered ahead of the static mount below for the same reason as the
+    # redirect above: `Mount("/_ui", ...)` claims every path under the prefix,
+    # `/_ui/api/*` included, unless something more specific is registered
+    # first. Gating itself (redirect-or-401 on an unauthenticated request) is
+    # `UIAuthMiddleware`'s job, not these handlers' — every one of them except
+    # `login` only ever runs once the middleware has already let the request
+    # through.
+
+    @app.post("/_ui/api/login", include_in_schema=False)
+    def ui_login(
+        request: Request, response: Response, body: dict[str, Any] = Body(...)
+    ) -> dict[str, Any]:
+        username = str(body.get("username") or "")
+        password = str(body.get("password") or "")
+        principal = authenticate_service_account(engine().storage, username, password)
+        settings = engine().settings
+        token = create_session(
+            engine().storage,
+            principal=principal,
+            auth_method="service_account",
+            ttl_seconds=settings.ui_session_ttl,
+        )
+        response.set_cookie(
+            SESSION_COOKIE_NAME,
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+            max_age=settings.ui_session_ttl,
+            path="/_ui/",
+        )
+        return {"principal": principal, "auth_method": "service_account"}
+
+    @app.post("/_ui/api/logout", include_in_schema=False)
+    def ui_logout(request: Request, response: Response) -> dict[str, Any]:
+        raw_token = request.cookies.get(SESSION_COOKIE_NAME)
+        if raw_token:
+            revoke_session(engine().storage, raw_token)
+        response.delete_cookie(SESSION_COOKIE_NAME, path="/_ui/")
+        return {"ok": True}
+
+    @app.get("/_ui/api/session", include_in_schema=False)
+    def ui_session_info(request: Request) -> dict[str, Any]:
+        settings = engine().settings
+        if not settings.ui_auth_enabled:
+            return {"auth_enabled": False}
+        # UIAuthMiddleware already rejected an unauthenticated request before
+        # this handler could run, so request.state is guaranteed to be set.
+        return {
+            "auth_enabled": True,
+            "principal": request.state.ui_principal,
+            "auth_method": request.state.ui_auth_method,
+        }
+
+    @app.get("/_ui/api/accounts", include_in_schema=False)
+    def list_ui_accounts(_request: Request) -> list[dict[str, Any]]:
+        return [
+            {"username": a.username, "disabled": a.disabled, "created_at": a.created_at}
+            for a in engine().storage.list_ui_accounts()
+        ]
+
+    @app.post("/_ui/api/accounts", include_in_schema=False)
+    def create_ui_account(body: dict[str, Any] = Body(...)) -> JSONResponse:
+        username = body.get("username")
+        password = body.get("password")
+        if not isinstance(username, str) or not username.strip():
+            raise InvalidQueryError("'username' is required")
+        if not isinstance(password, str) or len(password) < 8:
+            raise InvalidQueryError("'password' is required and must be at least 8 characters")
+        account = UIAccount(
+            username=username.strip(),
+            password_hash=hash_password(password),
+            disabled=False,
+            created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        )
+        engine().storage.create_ui_account(account)
+        return JSONResponse(status_code=201, content={"username": account.username})
+
+    @app.post("/_ui/api/accounts/{username}/disable", include_in_schema=False)
+    def disable_ui_account(username: str) -> Response:
+        if not engine().storage.set_ui_account_disabled(username, True):
+            return _ui_account_not_found(username)
+        return JSONResponse(content={"username": username, "disabled": True})
+
+    @app.post("/_ui/api/accounts/{username}/enable", include_in_schema=False)
+    def enable_ui_account(username: str) -> Response:
+        if not engine().storage.set_ui_account_disabled(username, False):
+            return _ui_account_not_found(username)
+        return JSONResponse(content={"username": username, "disabled": False})
+
+    @app.delete("/_ui/api/accounts/{username}", include_in_schema=False)
+    def delete_ui_account(username: str) -> Response:
+        if not engine().storage.delete_ui_account(username):
+            return _ui_account_not_found(username)
+        return JSONResponse(content={"username": username, "deleted": True})
 
     app.mount("/_ui", StaticFiles(directory=_STATIC_DIR, html=True), name="ui")
 

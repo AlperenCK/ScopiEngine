@@ -16,7 +16,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from scopiengine.errors import IndexAlreadyExistsError, IndexNotFoundError
+from scopiengine.errors import (
+    IndexAlreadyExistsError,
+    IndexNotFoundError,
+    UIAccountAlreadyExistsError,
+)
 from scopiengine.storage.base import SegmentTermEntry, StorageBackend
 from scopiengine.storage.models import (
     Checkpoint,
@@ -26,6 +30,8 @@ from scopiengine.storage.models import (
     SegmentState,
     StoredDoc,
     TermStats,
+    UIAccount,
+    UISession,
 )
 
 __all__ = ["DummyBackend"]
@@ -82,6 +88,8 @@ class DummyBackend(StorageBackend):
         self._indices: dict[str, _IndexRecord] = {}
         self._next_index_id = 1
         self._checkpoints: dict[str, Checkpoint] = {}
+        self._ui_accounts: dict[str, UIAccount] = {}
+        self._ui_sessions: dict[str, UISession] = {}
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -310,3 +318,46 @@ class DummyBackend(StorageBackend):
 
     def delete_checkpoint(self, cp_key: str) -> None:
         self._checkpoints.pop(cp_key, None)
+
+    # -- web UI accounts and sessions ---------------------------------------
+
+    def create_ui_account(self, account: UIAccount) -> None:
+        if account.username in self._ui_accounts:
+            raise UIAccountAlreadyExistsError(f"UI account {account.username!r} already exists")
+        self._ui_accounts[account.username] = account
+
+    def get_ui_account(self, username: str) -> UIAccount | None:
+        return self._ui_accounts.get(username)
+
+    def list_ui_accounts(self) -> list[UIAccount]:
+        return sorted(self._ui_accounts.values(), key=lambda a: a.created_at, reverse=True)
+
+    def set_ui_account_disabled(self, username: str, disabled: bool) -> bool:
+        account = self._ui_accounts.get(username)
+        if account is None:
+            return False
+        self._ui_accounts[username] = UIAccount(
+            username=account.username,
+            password_hash=account.password_hash,
+            disabled=disabled,
+            created_at=account.created_at,
+        )
+        return True
+
+    def delete_ui_account(self, username: str) -> bool:
+        return self._ui_accounts.pop(username, None) is not None
+
+    def create_ui_session(self, session: UISession) -> None:
+        self._ui_sessions[session.session_id_hash] = session
+
+    def get_ui_session(self, session_id_hash: str) -> UISession | None:
+        return self._ui_sessions.get(session_id_hash)
+
+    def delete_ui_session(self, session_id_hash: str) -> None:
+        self._ui_sessions.pop(session_id_hash, None)
+
+    def delete_expired_ui_sessions(self, *, now: str) -> int:
+        expired = [h for h, s in self._ui_sessions.items() if s.expires_at <= now]
+        for session_id_hash in expired:
+            del self._ui_sessions[session_id_hash]
+        return len(expired)

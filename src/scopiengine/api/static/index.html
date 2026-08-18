@@ -22,10 +22,19 @@
         <button class="nav-item" data-tab="help" type="button">
           <span class="nav-icon">&#63;</span> Help
         </button>
+        <button class="nav-item" data-tab="settings" type="button">
+          <span class="nav-icon">&#9881;</span> Settings
+        </button>
       </nav>
       <div class="sidebar-footer">
-        <span id="cluster-status" class="status-dot" title="checking...">&#9679;</span>
-        <span id="cluster-label">connecting&hellip;</span>
+        <div>
+          <span id="cluster-status" class="status-dot" title="checking...">&#9679;</span>
+          <span id="cluster-label">connecting&hellip;</span>
+        </div>
+        <div id="session-info" class="session-info" hidden>
+          <span id="session-principal"></span>
+          <button id="logout-btn" type="button">Sign out</button>
+        </div>
       </div>
     </aside>
 
@@ -137,6 +146,36 @@ scopi ingest file examples/logs/sample-app.log --index logs --processor json_lin
             <p class="panel-sub">
               Full reference: <code class="mono">docs/QUERY_LANGUAGE.md</code> in the repository.
             </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-settings" class="tab settings-tab">
+        <div id="settings-auth-off-note" class="settings-note" hidden>
+          Web UI login is currently disabled — every account below can be created and managed, but
+          nobody is asked to sign in yet. Set <code class="mono">SCOPI_UI_AUTH_ENABLED=true</code>
+          (server-side) to require it, then reload.
+        </div>
+
+        <div class="settings-grid">
+          <div class="panel">
+            <h3>Service Accounts</h3>
+            <table class="results-table">
+              <thead>
+                <tr><th>Username</th><th>Status</th><th>Created</th><th></th></tr>
+              </thead>
+              <tbody id="accounts-body"></tbody>
+            </table>
+          </div>
+
+          <div class="panel">
+            <h3>New account</h3>
+            <form id="account-form">
+              <input id="account-username" type="text" placeholder="Username" autocomplete="off" required>
+              <input id="account-password" type="password" placeholder="Password (min. 8 characters)" autocomplete="new-password" required minlength="8">
+              <div id="account-error" class="error-banner" hidden></div>
+              <button type="submit">Create account</button>
+            </form>
           </div>
         </div>
       </section>
