@@ -370,3 +370,56 @@ def test_scopiql_and_dsl_parity(logs: TestClient, scopiql_text: str, dsl_body: d
     scopiql_pairs = [(h["_id"], h["_score"]) for h in scopiql_hits["hits"]]
     dsl_pairs = [(h["_id"], h["_score"]) for h in dsl_hits["hits"]]
     assert scopiql_pairs == dsl_pairs
+
+
+# -- web UI ----------------------------------------------------------------
+
+
+def test_ui_root_redirects_to_trailing_slash(client: TestClient) -> None:
+    """`/{index}` matches any single path segment, `_ui` included — this route
+    must be registered ahead of it or `/_ui` gets swallowed as a (nonexistent)
+    index name instead of reaching the UI. See the registration-order comment
+    in api/app.py.
+    """
+    response = client.get("/_ui", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/_ui/"
+
+
+def test_ui_index_page_served(client: TestClient) -> None:
+    response = client.get("/_ui/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "ScopiEngine" in response.text
+
+
+def test_ui_static_assets_served(client: TestClient) -> None:
+    js = client.get("/_ui/app.js")
+    assert js.status_code == 200
+    assert "javascript" in js.headers["content-type"]
+
+    css = client.get("/_ui/styles.css")
+    assert css.status_code == 200
+    assert "css" in css.headers["content-type"]
+
+    logo = client.get("/_ui/img/logo.png")
+    assert logo.status_code == 200
+    assert logo.headers["content-type"] == "image/png"
+
+
+def test_index_named_ui_can_still_be_created_and_deleted(client: TestClient) -> None:
+    """`_ui` sits ahead of `/{index}` for GET, but PUT/HEAD/DELETE on the bare
+    path are untouched — an index literally named ``_ui`` can still be
+    created and removed. (Its `GET .../_search`, `.../_stats`, etc. are not
+    reachable, the same way `_bulk` or `_health` already were not reachable
+    as index names before this change — `_ui` simply joins that reserved set
+    for GET requests.)
+    """
+    created = client.put("/_ui", json={"properties": {"level": {"type": "keyword"}}})
+    assert created.status_code == 201, created.text
+
+    exists = client.head("/_ui")
+    assert exists.status_code == 200
+
+    deleted = client.delete("/_ui")
+    assert deleted.status_code == 200, deleted.text

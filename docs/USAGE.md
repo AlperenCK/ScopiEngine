@@ -182,6 +182,7 @@ never blocks the event loop other connections share.
 | `POST /{index}/_scopiql` | ScopiQL via JSON body: `{"query": "...", "size": ..., "from": ...}` |
 | `POST /{index}/_analyze` | `{"analyzer": "standard", "text": "..."}` |
 | `GET /_plugins` | Loaded/failed plugins |
+| `GET /_ui/` | The bundled web UI (see below) |
 
 Every error — from the engine, the query compiler, or a handler itself —
 renders as `{"error": {"type": ..., "reason": ...}, "status": ...}` at the
@@ -201,6 +202,19 @@ shape.
 - `_search`'s `sort` is a genuine index-wide sort, bounded by
   `max_sort_candidates` rather than by shard-local top-N behaviour — see
   [QUERY_LANGUAGE.md](QUERY_LANGUAGE.md#sort-is-a-real-index-wide-sort).
+
+### Web UI
+
+`scopi serve` also serves a minimal single-page UI at `/_ui/` — an index
+picker, a ScopiQL search box, and a results table, plus a per-index stats
+view. It's plain static HTML/CSS/JS calling the same JSON endpoints above
+from the browser (no build step, no extra dependency), bundled with the
+package so it's there as soon as `scopi serve` is. There is no separate
+`GET /_ui` endpoint of its own — it redirects to `/_ui/`, and everything
+under that prefix is claimed by the UI, which is why `_ui` joins `_health`,
+`_bulk`, and the rest as a name you should not give an index if you want to
+`GET` its search/stats routes directly (creating, checking, and deleting an
+index named `_ui` still works fine via `PUT`/`HEAD`/`DELETE`).
 
 ### Running it in Docker
 

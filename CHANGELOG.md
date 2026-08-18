@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A minimal web UI**, served alongside the REST API at `/_ui/`: an index
+  picker, a ScopiQL search box, a results table, and an indices tab with
+  per-index stats. It's hand-written static HTML/CSS/JS (no build step, no
+  new dependency) mounted via Starlette's `StaticFiles` and bundled into the
+  wheel, so it's there as soon as `scopi serve` is. `_ui` joins `_health`,
+  `_bulk`, and the rest as a reserved name for `GET` — an index literally
+  named `_ui` can still be created/checked/deleted, just not searched
+  through its own routes.
+
 ### Changed
 - **The logo and the banner used two different emblems.** `ScopiEngine-logo.png`
   and `ScopiEngine-banner.png` were separate raster renders that had drifted
