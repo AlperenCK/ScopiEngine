@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`--follow` on a file smaller than 4 KiB duplicated every appended line on
+  every poll.** `compute_signature` hashed the file's entire current content
+  whenever it was under the 4 KiB head-hash window, so a genuinely unchanged,
+  still-growing file got a new signature on every append; `classify_change`
+  cannot tell that apart from a real rotation, closed the handle, and
+  reopened the file at byte 0. Because `--id-mode offset` (the default) bakes
+  the signature into each document id, the reprocessed lines landed as brand
+  new documents rather than overwriting the old ones — an unbounded, silent
+  duplication for any actively-growing small log, which is a common shape
+  right after a fresh rotation. Below the 4 KiB threshold the signature is
+  now device and inode alone, which an in-place append cannot change.
+  `docs/INGEST.md`'s troubleshooting section previously described the
+  symptom as expected behaviour rather than the defect it was; corrected.
+
 ## [1.0.0] - 2026-08-17
 
 Initial release.

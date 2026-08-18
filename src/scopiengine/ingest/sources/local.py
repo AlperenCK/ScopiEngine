@@ -29,11 +29,23 @@ def compute_signature(path: Path, *, size: int) -> str:
     almost certainly different leading bytes); the same file keeps the same
     signature across process restarts, which is what lets a resumed run tell
     "still the same file" apart from "rotated out from under me".
+
+    The content hash only ever covers the file's first ``SIGNATURE_HEAD_BYTES``
+    once that many bytes genuinely exist. Hashing "whatever is there so far" for
+    a smaller file would make the signature drift on every append — an
+    actively growing log under the threshold would look "rotated" on every
+    single poll, since the bytes being hashed are exactly the ones that just
+    changed. Below the threshold the device and inode alone stand in: they are
+    already the primary identity signal, stable across an in-place append, and
+    only the content hash needed a stable window to be meaningful.
     """
     st = path.stat()
-    with path.open("rb") as fh:
-        head = fh.read(min(SIGNATURE_HEAD_BYTES, size) if size >= 0 else SIGNATURE_HEAD_BYTES)
-    digest = hashlib.sha1(head).hexdigest()
+    if size >= SIGNATURE_HEAD_BYTES:
+        with path.open("rb") as fh:
+            head = fh.read(SIGNATURE_HEAD_BYTES)
+        digest = hashlib.sha1(head).hexdigest()
+    else:
+        digest = "short"
     return f"{st.st_dev}:{st.st_ino}:{digest}"
 
 
