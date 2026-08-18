@@ -391,6 +391,32 @@ def test_ui_index_page_served(client: TestClient) -> None:
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "ScopiEngine" in response.text
+    assert "Help" in response.text
+
+
+def test_ui_help_examples_are_valid_scopiql(logs: TestClient) -> None:
+    """The Help tab's worked examples aren't just prose — they're pulled from
+    `app.js` and actually run against a real index here, so a syntax typo (or
+    a field name that doesn't match `examples/mappings/logs.json`) fails CI
+    instead of surfacing as a silent "0 hits" or a 400 the first time someone
+    clicks the example in the browser.
+    """
+    import re
+
+    js = logs.get("/_ui/app.js").text
+    array_match = re.search(r"HELP_EXAMPLES = \[(.*?)\];", js, re.DOTALL)
+    assert array_match, "HELP_EXAMPLES array not found in app.js"
+    # Each entry is a JS string literal, single- or double-quoted (one example
+    # embeds a `"..."` phrase and so is written with single quotes) — match a
+    # quote to its own kind, not to the next quote of either kind.
+    string_literal = re.compile(r'"([^"\\]*(?:\\.[^"\\]*)*)"|\'([^\'\\]*(?:\\.[^\'\\]*)*)\'')
+    examples = [
+        g1 if g1 is not None else g2 for g1, g2 in string_literal.findall(array_match.group(1))
+    ]
+    assert len(examples) >= 5
+    for example in examples:
+        response = logs.get("/logs/_search", params={"q": example})
+        assert response.status_code == 200, f"{example!r}: {response.text}"
 
 
 def test_ui_static_assets_served(client: TestClient) -> None:

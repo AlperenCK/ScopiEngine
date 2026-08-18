@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `_bulk`, and the rest as a reserved name for `GET` — an index literally
   named `_ui` can still be created/checked/deleted, just not searched
   through its own routes.
+- **A Help tab in the web UI**: a ScopiQL syntax and pipe-stage reference,
+  the field-resolution rules (including the `.keyword`-for-exact-match
+  gotcha on dynamically-mapped string fields), and a set of worked examples
+  you can click to load straight into the search box. The examples are
+  exercised in CI against a real index, so a syntax mistake in one fails the
+  build instead of surfacing as a broken click in the browser.
 
 ### Changed
 - **The logo and the banner used two different emblems.** `ScopiEngine-logo.png`

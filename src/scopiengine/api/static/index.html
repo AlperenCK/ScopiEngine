@@ -19,6 +19,9 @@
         <button class="nav-item" data-tab="indices" type="button">
           <span class="nav-icon">&#9707;</span> Indices
         </button>
+        <button class="nav-item" data-tab="help" type="button">
+          <span class="nav-icon">&#63;</span> Help
+        </button>
       </nav>
       <div class="sidebar-footer">
         <span id="cluster-status" class="status-dot" title="checking...">&#9679;</span>
@@ -76,6 +79,65 @@ scopi ingest file examples/logs/sample-app.log --index logs --processor json_lin
         <div id="index-detail" class="panel detail-panel" hidden>
           <h3 id="index-detail-title"></h3>
           <pre id="index-detail-body"></pre>
+        </div>
+      </section>
+
+      <section id="tab-help" class="tab help-tab">
+        <div class="help-grid">
+          <div class="panel help-panel">
+            <h3>Syntax</h3>
+            <table class="ref-table">
+              <tbody>
+                <tr><td class="mono">field:value</td><td>Term match — analyzed for <code>text</code> fields, exact for <code>keyword</code>.</td></tr>
+                <tr><td class="mono">field:"a phrase"</td><td>Phrase match, position-aware.</td></tr>
+                <tr><td class="mono">field:val*</td><td>Prefix (first analyzed token on <code>text</code> fields).</td></tr>
+                <tr><td class="mono">field:(a OR b)</td><td>Any of several values on one field.</td></tr>
+                <tr><td class="mono">field:[a TO b]</td><td>Inclusive range — numbers, dates, or lexical.</td></tr>
+                <tr><td class="mono">field:&gt;=v / &gt;v / &lt;=v / &lt;v</td><td>One-sided range.</td></tr>
+                <tr><td class="mono">_exists_:field</td><td>Document has any value for <code>field</code>.</td></tr>
+                <tr><td class="mono">AND / OR / NOT / !</td><td>Uppercase only. Adjacent terms with no operator are an implicit AND.</td></tr>
+                <tr><td class="mono">@timestamp:&gt;now-1h</td><td>Relative time — units <code>s/m/h/d/w</code>.</td></tr>
+              </tbody>
+            </table>
+
+            <h3>Pipe stages</h3>
+            <table class="ref-table">
+              <tbody>
+                <tr><td class="mono">| sort -field</td><td>Real index-wide sort, not page-local. <code>-</code> for descending. Comma-separate for multi-key.</td></tr>
+                <tr><td class="mono">| limit N</td><td>Cap the number of hits returned.</td></tr>
+                <tr><td class="mono">| fields a,b,c</td><td>Project <code>_source</code> down to just these fields.</td></tr>
+                <tr><td class="mono">| stats count() by field</td><td>Bucket every match by <code>field</code>, counted.</td></tr>
+              </tbody>
+            </table>
+
+            <h3>Field resolution</h3>
+            <p class="help-note">
+              A dynamically-mapped string field is indexed twice: analyzed as
+              <code class="mono">field</code> (matches individual words) and verbatim as
+              <code class="mono">field.keyword</code> (matches the whole value exactly). For an id-like
+              value — <code class="mono">trace_id</code>, <code class="mono">request_id</code>, <code class="mono">order_id</code> — search
+              <code class="mono">field.keyword</code> or you'll match every document that shares a token
+              (e.g. a common prefix before a hyphen). An explicitly mapped <code class="mono">keyword</code>
+              field (see <code class="mono">examples/mappings/logs.json</code>) doesn't need the suffix — there's only
+              one form of it.
+            </p>
+            <p class="help-note">
+              A field name that isn't mapped at all is not a parse error — the query still runs, it
+              just matches nothing. A sort that has to inspect more than
+              <code class="mono">max_sort_candidates</code> matches sets <code class="mono">scopi.sort_truncated: true</code> in
+              the response rather than silently returning a wrong-looking-complete page; narrow the
+              query with a filter first if you see it.
+            </p>
+          </div>
+
+          <div class="panel help-panel">
+            <h3>Try it</h3>
+            <p class="help-note">Click any example to load it into the search box.</p>
+            <ul id="help-examples" class="recent-list help-examples"></ul>
+            <p class="panel-sub">
+              Full reference: <code class="mono">docs/QUERY_LANGUAGE.md</code> in the repository.
+            </p>
+          </div>
         </div>
       </section>
     </main>
