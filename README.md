@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/ScopiEngine-logo.svg" alt="ScopiEngine" width="360">
+  <img src="docs/assets/ScopiEngine-logo.png" alt="ScopiEngine" width="420">
 </p>
 
 <h1 align="center">ScopiEngine</h1>
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/ScopiEngine-banner.svg" alt="ScopiEngine — Search / Analyze / Discover" width="900">
+  <img src="docs/assets/ScopiEngine-banner.png" alt="ScopiEngine — Search / Analyze / Discover" width="900">
 </p>
 
 ---
