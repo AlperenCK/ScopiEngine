@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScopiEngine</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="img/logo.png" alt="ScopiEngine" class="brand-mark">
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-tab="search" type="button">
+          <span class="nav-icon">&#128269;</span> Search
+        </button>
+        <button class="nav-item" data-tab="indices" type="button">
+          <span class="nav-icon">&#9707;</span> Indices
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <span id="cluster-status" class="status-dot" title="checking...">&#9679;</span>
+        <span id="cluster-label">connecting&hellip;</span>
+      </div>
+    </aside>
+
+    <main class="content">
+      <section id="tab-search" class="tab active">
+        <div class="search-bar">
+          <select id="index-select" aria-label="Index"></select>
+          <input id="query-input" type="text" spellcheck="false" autocomplete="off"
+                 placeholder="level:ERROR AND service:auth | sort -@timestamp | limit 20">
+          <button id="search-btn" type="button">Search</button>
+        </div>
+
+        <div id="search-meta" class="search-meta" hidden></div>
+        <div id="error-banner" class="error-banner" hidden></div>
+
+        <div class="search-layout">
+          <div class="results-panel">
+            <table id="results-table" class="results-table" hidden>
+              <thead><tr id="results-head"></tr></thead>
+              <tbody id="results-body"></tbody>
+            </table>
+            <div id="empty-state" class="empty-state" hidden>
+              <p>No indices to search yet.</p>
+              <p class="hint">Try:</p>
+              <pre>scopi index create logs --mapping examples/mappings/logs.json
+scopi ingest file examples/logs/sample-app.log --index logs --processor json_line</pre>
+            </div>
+          </div>
+
+          <div class="side-panels">
+            <div class="panel">
+              <h3>Query latency</h3>
+              <canvas id="latency-sparkline" width="220" height="48"></canvas>
+              <p id="latency-label" class="panel-sub">no queries yet</p>
+            </div>
+            <div class="panel">
+              <h3>Recent queries</h3>
+              <ul id="recent-queries" class="recent-list"></ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-indices" class="tab">
+        <table class="results-table">
+          <thead>
+            <tr><th>Index</th><th>Docs</th><th>Segments</th><th>Created</th></tr>
+          </thead>
+          <tbody id="indices-body"></tbody>
+        </table>
+        <div id="index-detail" class="panel detail-panel" hidden>
+          <h3 id="index-detail-title"></h3>
+          <pre id="index-detail-body"></pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

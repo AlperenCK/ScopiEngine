@@ -23,6 +23,13 @@ plain-text table; ``GET _doc/{id}`` for a missing document is a genuine
 ``404`` rather than a ``200`` with ``"found": false``; and ``_analyze``'s
 token objects carry no ``start_offset``/``end_offset`` (the analyzer layer
 does not track them).
+
+A minimal single-page UI (index picker, ScopiQL search box, results table)
+ships alongside the API and is mounted at ``/_ui`` — plain static files
+served by Starlette's ``StaticFiles``, calling the same JSON endpoints below
+from the browser. There is no build step or bundler: the whole thing is
+hand-written HTML/CSS/JS under ``api/static/``, in keeping with this
+project's minimal-dependencies stance.
 """
 
 from __future__ import annotations
@@ -30,10 +37,12 @@ from __future__ import annotations
 import json
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, Query, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from scopiengine import TAGLINE, __version__
 from scopiengine.engine import Engine
@@ -45,6 +54,11 @@ from scopiengine.query.results import run_dsl, run_scopiql
 from scopiengine.settings import Settings
 
 __all__ = ["create_app", "execute_bulk", "parse_bulk_lines"]
+
+#: The bundled single-page UI (index picker, ScopiQL search box, results
+#: table). Mounted at ``/_ui`` — a path prefix, not an ES verb, so it can
+#: never collide with an index name the way a top-level route could.
+_STATIC_DIR = Path(__file__).parent / "static"
 
 #: Bulk actions this build implements. ``update`` is a recognised but
 #: unsupported action — named explicitly in the error rather than falling
@@ -264,6 +278,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "loaded": list(registry.loaded),
             "failed": [{"name": r.name, "error": r.error} for r in failed],
         }
+
+    # -- web UI ------------------------------------------------------------
+    #
+    # Registered here, ahead of the `/{index}` routes below: those match any
+    # single path segment, so `/_ui` would otherwise be swallowed as a
+    # (nonexistent) index name — Starlette matches routes in registration
+    # order and takes the first one that fits. This makes `_ui` a reserved
+    # name for GET the same way `_health`/`_bulk`/etc. already were: an index
+    # literally named `_ui` can still be created, HEAD-checked and deleted,
+    # but every `GET /_ui/...` is claimed by the static mount below rather
+    # than reaching that index's own routes.
+
+    @app.get("/_ui", include_in_schema=False)
+    def ui_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/_ui/")
+
+    app.mount("/_ui", StaticFiles(directory=_STATIC_DIR, html=True), name="ui")
 
     # -- indices --------------------------------------------------------------
 

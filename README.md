@@ -56,6 +56,17 @@ scopi ingest file examples/logs/sample-app.log --index logs2 --processor json_li
 scopi search logs2 'status:>=500 | stats count() by service'
 ```
 
+## Web UI
+
+`scopi serve` also serves a minimal web UI at `/_ui/` — an index picker, a
+ScopiQL search box, and a results table, backed by the same REST endpoints
+above. No separate install, no build step: it's plain static files bundled
+with the package.
+
+<p align="center">
+  <img src="docs/assets/ui-search.png" alt="ScopiEngine web UI — search results" width="820">
+</p>
+
 ## Why it exists
 
 | Friction in the usual stack | What ScopiEngine does |
