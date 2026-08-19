@@ -35,10 +35,23 @@
       const form = document.getElementById("login-form");
       const errorBanner = document.getElementById("login-error");
 
+      // Everything before "/_ui/" in this page's own URL — see app.js's
+      // matching UI_BASE for why: it lets these same static files work
+      // unmodified behind a reverse proxy that maps a public subpath onto
+      // this server's root.
+      const marker = "/_ui/";
+      const markerIndex = window.location.pathname.indexOf(marker);
+      const uiBase = markerIndex === -1 ? "" : window.location.pathname.slice(0, markerIndex);
+
       function nextUrl() {
         const params = new URLSearchParams(window.location.search);
         const next = params.get("next");
-        return next && next.startsWith("/_ui/") ? next : "/_ui/";
+        // `next` comes from this app's own redirect (see UIAuthMiddleware) and
+        // is always root-relative from *its* point of view — the server has
+        // no notion of a proxy prefix — so it never carries `uiBase` itself;
+        // that has to be re-applied here, client-side.
+        const safe = next && next.startsWith("/_ui/") ? next : "/_ui/";
+        return uiBase + safe;
       }
 
       form.addEventListener("submit", async (event) => {
@@ -47,7 +60,7 @@
         const username = document.getElementById("login-username").value;
         const password = document.getElementById("login-password").value;
         try {
-          const res = await fetch("/_ui/api/login", {
+          const res = await fetch(`${uiBase}/_ui/api/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ username, password }),

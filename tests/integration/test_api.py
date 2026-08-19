@@ -433,6 +433,25 @@ def test_ui_static_assets_served(client: TestClient) -> None:
     assert logo.headers["content-type"] == "image/png"
 
 
+def test_ui_static_files_compute_their_own_base_path(client: TestClient) -> None:
+    """`app.js` and `login.html` must derive their API base from the page's
+    own URL (`UI_BASE`/`uiBase`) rather than assume they are served at the
+    domain root — otherwise the UI silently breaks the moment it is deployed
+    behind a reverse proxy that maps a public subpath onto this app's root
+    (see docs/UI_AUTH.md's "Behind a reverse proxy" section). A hardcoded
+    leading `"/_ui/`-style absolute fetch reappearing here is exactly the
+    regression this guards against.
+    """
+    js = client.get("/_ui/app.js").text
+    assert "UI_BASE" in js
+    assert '"/_ui/api/session"' not in js
+    assert "`${UI_BASE}/_ui/api/session`" in js
+
+    login_page = client.get("/_ui/login.html").text
+    assert "uiBase" in login_page
+    assert '"/_ui/api/login"' not in login_page
+
+
 def test_index_named_ui_can_still_be_created_and_deleted(client: TestClient) -> None:
     """`_ui` sits ahead of `/{index}` for GET, but PUT/HEAD/DELETE on the bare
     path are untouched — an index literally named ``_ui`` can still be

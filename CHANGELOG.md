@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   waiting out the TTL. See [docs/UI_AUTH.md](docs/UI_AUTH.md). AD/LDAP bind
   as a second login method is planned as a follow-up, not included here.
 
+### Fixed
+- **The web UI broke behind a reverse proxy that publishes it under a
+  subpath** (e.g. IIS ARR mapping `example.com/scopi/` onto `scopi serve`'s
+  own root). `app.js`/`login.html` called absolute paths like `/_cat/indices`
+  and `/_ui/api/login`, which the browser resolves against the domain root,
+  not the page's own path — so they missed the `/scopi` prefix and 404'd at
+  the proxy. Both files now derive the prefix they were actually loaded
+  under from `window.location.pathname` and use that for every API call, so
+  the same static files work unmodified whether ScopiEngine is the whole
+  site or one path under it. The session cookie's `Path` also moved from
+  `/_ui/` to `/` for the same reason — a `/_ui/`-scoped cookie set behind
+  such a proxy would never be sent back, since the browser's real request
+  path is `/scopi/_ui/...`. See [docs/UI_AUTH.md](docs/UI_AUTH.md#behind-a-reverse-proxy-under-a-subpath).
+
 ### Changed
 - **The logo and the banner used two different emblems.** `ScopiEngine-logo.png`
   and `ScopiEngine-banner.png` were separate raster renders that had drifted
