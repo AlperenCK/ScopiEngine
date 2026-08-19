@@ -122,6 +122,22 @@ def test_login_with_correct_credentials_sets_a_working_session(auth_client: Test
     assert ui_page.status_code == 200
 
 
+def test_session_cookie_is_scoped_to_the_whole_site_not_just_ui(
+    auth_client: TestClient,
+) -> None:
+    """`Path=/`, not `/_ui/` — behind a reverse proxy that maps a public
+    subpath onto this app's root (see docs/UI_AUTH.md), the browser's real
+    request path is `/<subpath>/_ui/...`, which a `/_ui/`-scoped cookie would
+    never match and so would silently never be sent back.
+    """
+    _bootstrap_account(auth_client, "alice", "correct horse battery staple")
+    login = auth_client.post(
+        "/_ui/api/login", json={"username": "alice", "password": "correct horse battery staple"}
+    )
+    assert "Path=/;" in login.headers["set-cookie"]
+    assert "Path=/_ui/" not in login.headers["set-cookie"]
+
+
 def test_login_with_wrong_password_is_rejected(auth_client: TestClient) -> None:
     _bootstrap_account(auth_client, "alice", "correct horse battery staple")
     login = auth_client.post(

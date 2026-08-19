@@ -345,7 +345,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             samesite="lax",
             secure=request.url.scheme == "https",
             max_age=settings.ui_session_ttl,
-            path="/_ui/",
+            # Not scoped to "/_ui/": behind a reverse proxy that maps a public
+            # subpath onto this app's root (e.g. IIS ARR rewriting
+            # example.com/scopi/* -> this server's /*, transparently, with no
+            # awareness on this app's part of the "/scopi" prefix), the
+            # browser's real request path is "/scopi/_ui/...", which a
+            # "/_ui/"-scoped cookie would never match — it would simply never
+            # be sent back. "/" has no such failure mode. The REST API not
+            # reading cookies at all is what actually keeps this scoped to
+            # the UI in practice, not the cookie's Path attribute.
+            path="/",
         )
         return {"principal": principal, "auth_method": "service_account"}
 
@@ -354,7 +363,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         raw_token = request.cookies.get(SESSION_COOKIE_NAME)
         if raw_token:
             revoke_session(engine().storage, raw_token)
-        response.delete_cookie(SESSION_COOKIE_NAME, path="/_ui/")
+        response.delete_cookie(SESSION_COOKIE_NAME, path="/")
         return {"ok": True}
 
     @app.get("/_ui/api/session", include_in_schema=False)

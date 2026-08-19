@@ -1,6 +1,18 @@
 (() => {
   "use strict";
 
+  // Everything before "/_ui/" in this page's own URL — "" when the app is
+  // served at the root, "/scopi" when a reverse proxy maps a public subpath
+  // onto this server's root (e.g. IIS ARR rewriting example.com/scopi/* to
+  // this app transparently). Every absolute API path below is built from
+  // this instead of a bare leading "/", so the same static files work
+  // unmodified at any mount point a proxy puts them at.
+  const UI_BASE = (() => {
+    const marker = "/_ui/";
+    const index = window.location.pathname.indexOf(marker);
+    return index === -1 ? "" : window.location.pathname.slice(0, index);
+  })();
+
   const RECENT_KEY = "scopi.ui.recentQueries";
   const RECENT_MAX = 10;
   const LATENCY_MAX = 20;
@@ -251,7 +263,7 @@
     clearError();
     const started = performance.now();
     try {
-      const url = `/${encodeURIComponent(index)}/_search?q=${encodeURIComponent(query)}&size=25`;
+      const url = `${UI_BASE}/${encodeURIComponent(index)}/_search?q=${encodeURIComponent(query)}&size=25`;
       const response = await fetchJSON(url);
       const clientMs = Math.round(performance.now() - started);
       recordLatency(typeof response.took === "number" ? response.took : clientMs);
@@ -269,7 +281,7 @@
   async function loadIndices() {
     let indices = [];
     try {
-      indices = await fetchJSON("/_cat/indices");
+      indices = await fetchJSON(`${UI_BASE}/_cat/indices`);
       clusterStatus.className = "status-dot ok";
       clusterLabel.textContent = "connected";
     } catch (err) {
@@ -312,7 +324,7 @@
 
   async function showIndexDetail(index) {
     try {
-      const stats = await fetchJSON(`/${encodeURIComponent(index)}/_stats`);
+      const stats = await fetchJSON(`${UI_BASE}/${encodeURIComponent(index)}/_stats`);
       indexDetailTitle.textContent = index;
       indexDetailBody.textContent = JSON.stringify(stats, null, 2);
       indexDetail.hidden = false;
@@ -359,7 +371,7 @@
 
   async function checkSession() {
     try {
-      const info = await fetchJSON("/_ui/api/session");
+      const info = await fetchJSON(`${UI_BASE}/_ui/api/session`);
       if (info.auth_enabled) {
         sessionInfo.hidden = false;
         sessionPrincipal.textContent = info.principal;
@@ -379,9 +391,9 @@
   function setupLogout() {
     logoutBtn.addEventListener("click", async () => {
       try {
-        await fetch("/_ui/api/logout", { method: "POST" });
+        await fetch(`${UI_BASE}/_ui/api/logout`, { method: "POST" });
       } finally {
-        window.location.href = "/_ui/login.html";
+        window.location.href = `${UI_BASE}/_ui/login.html`;
       }
     });
   }
@@ -389,7 +401,7 @@
   async function loadAccounts() {
     let accounts;
     try {
-      accounts = await fetchJSON("/_ui/api/accounts");
+      accounts = await fetchJSON(`${UI_BASE}/_ui/api/accounts`);
     } catch (err) {
       showError(err.message || String(err));
       return;
@@ -428,7 +440,7 @@
   async function toggleAccount(username, disable) {
     try {
       const verb = disable ? "disable" : "enable";
-      await fetchJSON(`/_ui/api/accounts/${encodeURIComponent(username)}/${verb}`, {
+      await fetchJSON(`${UI_BASE}/_ui/api/accounts/${encodeURIComponent(username)}/${verb}`, {
         method: "POST",
       });
       await loadAccounts();
@@ -439,7 +451,7 @@
 
   async function deleteAccount(username) {
     try {
-      await fetchJSON(`/_ui/api/accounts/${encodeURIComponent(username)}`, { method: "DELETE" });
+      await fetchJSON(`${UI_BASE}/_ui/api/accounts/${encodeURIComponent(username)}`, { method: "DELETE" });
       await loadAccounts();
     } catch (err) {
       showError(err.message || String(err));
@@ -452,7 +464,7 @@
       event.preventDefault();
       accountError.hidden = true;
       try {
-        await fetchJSON("/_ui/api/accounts", {
+        await fetchJSON(`${UI_BASE}/_ui/api/accounts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

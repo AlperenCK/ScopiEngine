@@ -63,8 +63,12 @@ very next click, not up to `ui_session_ttl` seconds later.
 ## Sessions
 
 A successful login sets an `httponly`, `SameSite=Lax` cookie
-(`scopi_ui_session`) scoped to the `/_ui/` path — never sent to the REST API,
-never readable by page JavaScript. The cookie carries a random 256-bit token;
+(`scopi_ui_session`), never readable by page JavaScript. Its `Path` is `/`,
+not `/_ui/` — the REST API not reading cookies at all is what actually keeps
+this scoped to the UI in practice, and `/` is what survives being deployed
+behind a reverse proxy that maps a public subpath onto this app's root (see
+"Behind a reverse proxy" below); a `/_ui/`-scoped cookie would silently stop
+being sent back in that setup. The cookie carries a random 256-bit token;
 only its SHA-256 hash is ever persisted, the same reasoning as a password
 hash — reading the storage backend's contents does not hand out working
 sessions.
@@ -77,6 +81,32 @@ sessions.
 Passwords are hashed with PBKDF2-HMAC-SHA256 (260,000 iterations, a random
 16-byte salt per account) via the standard library only — no extra
 dependency for something this common.
+
+## Behind a reverse proxy, under a subpath
+
+`scopi serve` always answers at its own root — `/_ui/`, `/_health`, and so
+on — with no configuration for "I'm mounted under `/something`". Putting it
+behind a reverse proxy that publishes it under a subpath of a larger site
+(`https://example.com/scopi/` in front of `scopi serve` listening on
+`127.0.0.1:9500`) works with **no changes on ScopiEngine's side**, provided
+the proxy **strips the subpath before forwarding** — the backend must see
+exactly the same request path it would if it were reachable directly at the
+domain root. `index.html`/`login.html`'s own JavaScript detects the prefix
+it was actually loaded under (from `window.location.pathname`, client-side)
+and prepends it to every API call it makes, so the same static files behave
+correctly whether ScopiEngine is the whole site or one path under it.
+
+What the proxy does *not* need to do: rewrite response bodies, know about
+`/_ui/`, or do anything content-aware. What it *does* need to get right:
+- Forward `/scopi/(.*)` to `http://127.0.0.1:9500/$1` — prefix stripped.
+- Rewrite the `Location` header on redirects it relays, adding the prefix
+  back (`/_ui/` → `/scopi/_ui/`) — otherwise a plain unauthenticated
+  `GET /scopi/_ui/` correctly redirects to `.../login.html`, but as a
+  same-origin absolute path missing the prefix, landing on a 404 instead.
+  Both IIS's Application Request Routing "Reverse Proxy" rule template and
+  nginx's `proxy_redirect` handle this automatically once configured for the
+  purpose — it is not extra ScopiEngine-specific work, just something to
+  turn on.
 
 ## What this does not cover
 
